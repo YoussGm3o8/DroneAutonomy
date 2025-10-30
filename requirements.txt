@@ -1,0 +1,39 @@
+# Core dependencies for DroneAutonomy vision pipeline
+# Compatible with Windows + NVIDIA RTX 3060
+
+# Computer vision and video processing
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+
+# Deep learning and inference
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics>=8.0.0  # YOLO models
+timm>=0.9.0  # For MiDaS depth estimation
+
+# MAVLink communication
+pymavlink>=2.4.37
+
+# Numerical computing
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Image processing
+Pillow>=10.0.0
+
+# Configuration management
+pyyaml>=6.0
+
+# Utilities
+tqdm>=4.65.0
+colorama>=0.4.6
+
+# Optional: AirSim for simulation
+# airsim  # Uncomment for AirSim support
+
+# Optional: TensorRT for optimized inference on NVIDIA GPUs
+# Install separately: https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html
+# tensorrt
+
+# Optional: DeepStream SDK for production deployment
+# Install separately: https://developer.nvidia.com/deepstream-sdk
