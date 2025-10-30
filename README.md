@@ -16,10 +16,75 @@ DroneAutonomy provides a laptop-hosted real-time pipeline that consumes a GStrea
 
 ### Software
 - Python 3.8+
+- **OpenCV with GStreamer support** (pre-compiled at `C:\opencv\build\bin\Release`)
+- **GStreamer** (installed at `C:\gstreamer\1.0\msvc_x86_64\bin`)
 - CUDA-capable GPU drivers
-- GStreamer (for video streaming)
 - Optional: TensorRT for optimized inference
 - Optional: AirSim for simulation testing
+
+## Quick Start
+
+### 1. Setup Virtual Environment
+
+This project uses a virtual environment with automatic DLL path configuration for OpenCV and GStreamer:
+
+```powershell
+# Activate the environment (PowerShell)
+.\activate_env.ps1
+
+# Or use Command Prompt
+activate_env.bat
+```
+
+The activation scripts will:
+- Activate the Python virtual environment
+- Configure OpenCV and GStreamer DLL paths automatically
+- Prepare the environment for computer vision operations
+
+### 2. Install Dependencies
+
+Dependencies are already installed if you cloned this repository. To reinstall or update:
+
+```bash
+pip install -e .
+```
+
+### 3. Verify Setup
+
+Test that OpenCV with GStreamer is working correctly:
+
+```bash
+python tests\test_dll_setup.py
+```
+
+You should see all tests pass with GStreamer backend available.
+
+### 4. Run Examples
+
+#### Real Drone Mode
+```bash
+# Test YOLO detection
+python examples\test_yolo_detection.py
+
+# Test depth estimation
+python examples\test_depth_estimation.py
+
+# Run basic pipeline with real drone
+python examples\run_basic.py
+```
+
+#### Simulation Mode (AirSim)
+```bash
+# Test pipeline in AirSim simulation
+python examples\test_airsim_pipeline.py
+
+# Fast mode simulation (20+ FPS)
+python examples\test_airsim_pipeline.py --fast --interval 2
+```
+
+For more details, see:
+- [Virtual Environment Setup Guide](docs/VENV_SETUP.md)
+- [AirSim Simulation Guide](docs/AIRSIM_SIMULATION.md)
 
 ## Features
 
@@ -30,7 +95,16 @@ DroneAutonomy provides a laptop-hosted real-time pipeline that consumes a GStrea
    - OpenCV fallback for standard camera input
    - Configurable resolution and frame rate
 
-2. **Visual Odometry (VIO)**
+2. **Autonomous Navigation** 🆕
+   - Obstacle avoidance using depth estimation
+   - Target detection and tracking (red circular markers)
+   - Camera centering with PID control
+   - Safe approach with depth-based distance control
+   - GPS/telemetry logging for each target
+   - Automatic photo capture on target lock
+   - See [Autonomous Mode Guide](docs/AUTONOMOUS_MODE.md)
+
+3. **Visual Odometry (VIO)**
    - 6-DoF pose estimation using monocular camera
    - Feature-based visual odometry
    - IMU integration support (when available)
@@ -96,6 +170,71 @@ pip install airsim
 ```
 
 ## Quick Start
+
+### Running Modes
+
+DroneAutonomy supports two primary modes: **Real Drone** and **Simulation**.
+
+#### Mode 1: Real Drone (RTSP Camera)
+
+Use with physical drone and RTSP camera stream:
+
+```bash
+# Full pipeline with all features
+python src/drone_autonomy/pipeline.py
+
+# High-performance mode (20+ FPS)
+python src/drone_autonomy/pipeline.py --fast --interval 2 --config config/high_performance.yaml
+
+# Custom configuration
+python src/drone_autonomy/pipeline.py --config config/default_config.yaml
+```
+
+**Features:**
+- 1080p 60 FPS GStreamer RTSP input
+- MAVLink telemetry (UDP/USB auto-detect)
+- Visual odometry output
+- Real-time obstacle detection
+
+#### Mode 2: AirSim Simulation
+
+Use for safe testing without physical drone:
+
+```bash
+# Basic simulation test
+python examples/test_airsim_pipeline.py
+
+# High-performance simulation (20+ FPS)
+python examples/test_airsim_pipeline.py --fast --interval 2
+
+# Direct pipeline usage with sim config
+python src/drone_autonomy/pipeline.py --config config/airsim_simulation.yaml
+```
+
+**Features:**
+- Safe testing environment
+- Ground truth data available
+- No MAVLink needed
+- Reproducible scenarios
+
+See [AirSim Simulation Guide](docs/AIRSIM_SIMULATION.md) for detailed setup.
+
+### Performance Modes
+
+For achieving 20+ FPS (both real drone and simulation):
+
+```bash
+# Fast mode: Skip depth estimation (2.4x speedup)
+python src/drone_autonomy/pipeline.py --fast
+
+# Frame interval: Process every 2nd frame (2x speedup)  
+python src/drone_autonomy/pipeline.py --interval 2
+
+# Combined: 15-25 FPS
+python src/drone_autonomy/pipeline.py --fast --interval 2 --config config/high_performance.yaml
+```
+
+See [Usage Guide](docs/USAGE_GUIDE.md) for complete performance optimization details.
 
 ### Basic Usage
 
@@ -219,6 +358,35 @@ calib.save_to_file('config/camera_calibration.json')
    ```bash
    python -m drone_autonomy.pipeline --config config/default_config.yaml
    ```
+
+### Autonomous Navigation Mode 🆕
+
+Enable fully autonomous obstacle avoidance and target approach:
+
+```bash
+# Basic autonomous mode
+python -m drone_autonomy.pipeline --autonomous
+
+# With performance mode (recommended: balanced 18 FPS)
+python -m drone_autonomy.pipeline --autonomous --interval 2
+
+# Test autonomous with example script
+python examples\test_autonomous.py
+```
+
+**Features:**
+- ✅ Avoid obstacles using depth maps
+- ✅ Detect and track red circular targets
+- ✅ Center camera on target (PID control)
+- ✅ Safely approach target (maintains 1.5-2.0m distance)
+- ✅ Log GPS coordinates, heading, altitude
+- ✅ Capture photos on target lock
+
+**Output:**
+- Target logs: `logs/autonomous/targets_*.csv`
+- Photos: `logs/autonomous/photos/target_*.jpg`
+
+**See full documentation:** [Autonomous Mode Guide](docs/AUTONOMOUS_MODE.md)
 
 ## Training Custom Models
 

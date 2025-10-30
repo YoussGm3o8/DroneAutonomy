@@ -1,18 +1,32 @@
 # Core dependencies for DroneAutonomy vision pipeline
 # Compatible with Windows + NVIDIA RTX 3060
+# 
+# IMPORTANT: Use Python 3.11 or 3.12 for full compatibility
+# - Python 3.13: OpenCV wheels not available (use conda or Python 3.11/3.12)
+# - Python 3.10 or older: Torch CUDA support limited
 
 # Computer vision and video processing
-opencv-python>=4.8.0
-opencv-contrib-python>=4.8.0
+opencv-python>=4.10.0
+opencv-contrib-python>=4.10.0
 
-# Deep learning and inference
-torch>=2.0.0
-torchvision>=0.15.0
+# Deep learning and inference (CUDA-enabled)
+# Install PyTorch with CUDA 11.8 support (required for GPU acceleration + compatible with CUDA 12.9):
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118 --force-reinstall
+# For CPU-only: pip install torch torchvision
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1
 ultralytics>=8.0.0  # YOLO models
 timm>=0.9.0  # For MiDaS depth estimation
 
+# Depth estimation models
+# Depth Anything V2 (faster and more accurate than MiDaS)
+depth-anything-v2>=0.1.0  # Depth Anything V2 for state-of-the-art depth estimation
+huggingface-hub>=0.20.0  # For downloading pretrained Depth Anything V2 weights
+
 # MAVLink communication
 pymavlink>=2.4.37
+pyserial>=3.5  # For USB serial port detection and communication
 
 # Numerical computing
 numpy>=1.24.0
@@ -28,8 +42,14 @@ pyyaml>=6.0
 tqdm>=4.65.0
 colorama>=0.4.6
 
-# Optional: AirSim for simulation
-# airsim  # Uncomment for AirSim support
+# AirSim for simulation (requires special installation)
+# Dependencies for AirSim
+msgpack-rpc-python>=0.4.1
+tornado<5,>=3
+backports.ssl-match-hostname>=3.7.0
+# Install AirSim with: pip install --no-build-isolation airsim
+# Note: Must be installed after numpy and other dependencies are already installed
+airsim>=1.8.1
 
 # Optional: TensorRT for optimized inference on NVIDIA GPUs
 # Install separately: https://docs.nvidia.com/deeplearning/tensorrt/install-guide/index.html

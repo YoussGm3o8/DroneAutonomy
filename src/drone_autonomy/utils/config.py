@@ -72,6 +72,8 @@ class Config:
             'mavlink': {
                 'connection_string': 'udp:127.0.0.1:14550',
                 'baud': 57600,
+                'auto_detect': True,
+                'heartbeat_timeout': 5,
                 'vio_publish_rate': 30,
                 'telemetry_rate': 10
             },

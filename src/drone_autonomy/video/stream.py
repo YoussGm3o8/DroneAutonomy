@@ -40,34 +40,53 @@ class VideoStream:
             
             if backend == 'gstreamer':
                 pipeline = self.config.get('gstreamer_pipeline')
+                
+                # Use OpenCV's GStreamer backend
+                self.logger.info(f"Opening GStreamer pipeline...")
+                self.logger.info(f"Pipeline: {pipeline}")
+                
+                # Important: Set CAP_GSTREAMER backend explicitly
                 self.cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
-                self.logger.info(f"Initialized GStreamer pipeline: {pipeline}")
+                
+                if not self.cap.isOpened():
+                    self.logger.error("Failed to open GStreamer pipeline with OpenCV")
+                    self.logger.error("Make sure:")
+                    self.logger.error("  1. OpenCV is built with GStreamer support")
+                    self.logger.error("  2. GStreamer is installed and in PATH")
+                    self.logger.error("  3. The RTSP stream is accessible")
+                    return False
+                
+                # For GStreamer, don't try to set properties - they're defined in the pipeline
+                self.logger.info("✓ GStreamer stream opened successfully with OpenCV backend")
+                
             else:
                 # Fallback to default camera
                 camera_id = self.config.get('camera_id', 0)
                 self.cap = cv2.VideoCapture(camera_id)
                 self.logger.info(f"Initialized default camera: {camera_id}")
-            
-            if not self.cap.isOpened():
-                self.logger.error("Failed to open video stream")
-                return False
-            
-            # Set video properties
-            width = self.config.get('width', 1280)
-            height = self.config.get('height', 720)
-            fps = self.config.get('fps', 30)
-            
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-            self.cap.set(cv2.CAP_PROP_FPS, fps)
+                
+                if not self.cap.isOpened():
+                    self.logger.error("Failed to open camera")
+                    return False
+                
+                # Set video properties for regular cameras
+                width = self.config.get('width', 1280)
+                height = self.config.get('height', 720)
+                fps = self.config.get('fps', 30)
+                
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+                self.cap.set(cv2.CAP_PROP_FPS, fps)
+                
+                self.logger.info(f"Camera properties set: {width}x{height} @ {fps}fps")
             
             self.is_running = True
             self.start_time = time.time()
-            self.logger.info(f"Video stream started: {width}x{height} @ {fps}fps")
+            self.logger.info("Video stream started successfully")
             return True
             
         except Exception as e:
-            self.logger.error(f"Error starting video stream: {e}")
+            self.logger.error(f"Error starting video stream: {e}", exc_info=True)
             return False
     
     def read(self) -> Tuple[bool, Optional[np.ndarray], float]:

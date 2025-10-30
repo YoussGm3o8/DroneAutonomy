@@ -3,16 +3,17 @@
 import logging
 import time
 import numpy as np
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from pymavlink import mavutil
+import serial.tools.list_ports
 
 
 class MAVLinkTelemetry:
     """
     MAVLink telemetry interface for visual odometry and telemetry communication.
     
-    Provides UDP-based communication with ArduPilot for VIO integration and
-    ground station telemetry.
+    Provides UDP-based and USB serial communication with ArduPilot for VIO integration
+    and ground station telemetry. Automatically detects available connections.
     """
     
     def __init__(self, config: dict):
@@ -30,6 +31,9 @@ class MAVLinkTelemetry:
         self.connection_string = config.get('connection_string', 'udp:127.0.0.1:14550')
         self.vio_publish_rate = config.get('vio_publish_rate', 30)
         self.telemetry_rate = config.get('telemetry_rate', 10)
+        self.baud = config.get('baud', 57600)
+        self.auto_detect = config.get('auto_detect', True)
+        self.heartbeat_timeout = config.get('heartbeat_timeout', 5)
         
         self.last_vio_publish = 0
         self.last_telemetry_read = 0
@@ -39,30 +43,84 @@ class MAVLinkTelemetry:
         self.position = None
         self.velocity = None
         self.gps_status = None
+    
+    def _find_usb_ports(self) -> List[str]:
+        """
+        Find available USB serial ports that might be flight controllers.
+        
+        Returns:
+            List of serial port device paths
+        """
+        usb_ports = []
+        try:
+            ports = serial.tools.list_ports.comports()
+            for port in ports:
+                # Look for common flight controller USB identifiers
+                if any(keyword in port.description.lower() for keyword in 
+                       ['usb', 'serial', 'ch340', 'ftdi', 'cp210', 'pixhawk', 'ardupilot']):
+                    usb_ports.append(port.device)
+                    self.logger.info(f"Found potential flight controller port: {port.device} - {port.description}")
+        except Exception as e:
+            self.logger.error(f"Error scanning USB ports: {e}")
+        
+        return usb_ports
+    
+    def _try_connection(self, connection_string: str, timeout: int = 5) -> Optional[mavutil.mavlink_connection]:
+        """
+        Try to establish a MAVLink connection with heartbeat verification.
+        
+        Args:
+            connection_string: MAVLink connection string
+            timeout: Heartbeat timeout in seconds
+            
+        Returns:
+            MAVLink connection object if successful, None otherwise
+        """
+        try:
+            self.logger.info(f"Attempting connection: {connection_string}")
+            conn = mavutil.mavlink_connection(connection_string)
+            
+            # Wait for heartbeat with timeout
+            self.logger.info(f"Waiting for heartbeat (timeout: {timeout}s)...")
+            conn.wait_heartbeat(timeout=timeout)
+            
+            self.logger.info(f"Heartbeat received from system {conn.target_system}, component {conn.target_component}")
+            return conn
+            
+        except Exception as e:
+            self.logger.debug(f"Connection failed for {connection_string}: {e}")
+            return None
         
     def connect(self) -> bool:
         """
         Connect to MAVLink vehicle.
+        Tries configured connection first, then auto-detects USB ports if enabled.
         
         Returns:
             True if connected successfully, False otherwise
         """
-        try:
-            self.logger.info(f"Connecting to MAVLink: {self.connection_string}")
-            self.connection = mavutil.mavlink_connection(self.connection_string)
-            
-            # Wait for heartbeat
-            self.logger.info("Waiting for heartbeat...")
-            self.connection.wait_heartbeat(timeout=10)
-            
-            self.is_connected = True
-            self.logger.info(f"Connected to system {self.connection.target_system}, component {self.connection.target_component}")
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Error connecting to MAVLink: {e}")
-            return False
+        connection_attempts = []
+        
+        # Try configured connection first
+        connection_attempts.append(self.connection_string)
+        
+        # If auto-detect is enabled, add USB ports to try
+        if self.auto_detect:
+            usb_ports = self._find_usb_ports()
+            for port in usb_ports:
+                connection_attempts.append(f"{port}:{self.baud}")
+        
+        # Try each connection
+        for conn_str in connection_attempts:
+            conn = self._try_connection(conn_str, timeout=self.heartbeat_timeout)
+            if conn is not None:
+                self.connection = conn
+                self.is_connected = True
+                self.logger.info(f"Successfully connected via: {conn_str}")
+                return True
+        
+        self.logger.error("Failed to connect to MAVLink vehicle on any available port")
+        return False
     
     def publish_visual_odometry(self, position: np.ndarray, orientation: np.ndarray, 
                                 velocity: Optional[np.ndarray] = None,

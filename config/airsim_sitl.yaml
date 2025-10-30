@@ -1,0 +1,92 @@
+# DroneAutonomy Vision Pipeline Configuration - AIRSIM + ARDUPILOT SITL MODE
+# Use this config when running ArduPilot SITL with AirSim physics
+# This gives you: Real flight controller + AirSim graphics/physics + Full MAVLink
+
+# Video input configuration - DISABLED (using AirSim)
+video:
+  gstreamer_pipeline: ""  # Not used in simulation
+  width: 1920
+  height: 1080
+  fps: 30  # AirSim typically runs at 30 FPS
+  backend: opencv
+  camera_id: 0
+
+# Camera calibration parameters (AirSim default camera)
+camera:
+  fx: 750.0  # Focal length x
+  fy: 750.0  # Focal length y
+  cx: 960.0  # Principal point x
+  cy: 540.0  # Principal point y
+  k1: 0.0    # Radial distortion k1
+  k2: 0.0    # Radial distortion k2
+  p1: 0.0    # Tangential distortion p1
+  p2: 0.0    # Tangential distortion p2
+
+# Visual Inertial Odometry configuration
+vio:
+  enabled: true
+  type: vins-mono
+  imu_rate: 200
+  output_rate: 30
+
+# Depth estimation configuration
+depth:
+  model: depth_anything_v2_vits  # Fastest Depth Anything V2 model
+  device: cuda
+  input_size: [384, 384]
+  output_scale: 0.5
+
+# YOLO object detection configuration
+detection:
+  yolo_model: yolov8n.pt
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+  device: cuda
+  use_tensorrt: false
+  imgsz: 640  # Full resolution for simulation
+  classes:
+    - person
+    - car
+    - truck
+    - bicycle
+    - motorcycle
+
+# Red circular target detection configuration
+target_detection:
+  hsv_lower: [0, 100, 100]
+  hsv_upper: [10, 255, 255]
+  min_radius: 10
+  max_radius: 200
+  circle_threshold: 0.7
+  downscale_factor: 2  # Process at half resolution for 5x speedup
+
+# MAVLink telemetry configuration - ENABLED for SITL
+mavlink:
+  connection_string: "udp:127.0.0.1:14550"  # Connect to ArduPilot SITL output 1
+  baud: 57600
+  auto_detect: false  # Use specific port
+  heartbeat_timeout: 5
+  vio_publish_rate: 30
+  telemetry_rate: 10
+
+# Fusion and decision layer configuration
+fusion:
+  depth_weight: 0.6
+  detection_weight: 0.4
+  min_confidence: 0.6
+  proximity_threshold: 2.0
+
+# AirSim simulation configuration - ENABLED
+simulation:
+  enabled: true  # Enable AirSim mode for camera
+  ip: "127.0.0.1"  # AirSim server IP
+  port: 41451  # Default AirSim port
+  timeout: 10
+  camera_name: "0"  # Default front camera
+  auto_takeoff: false  # Use MAVLink/GCS for takeoff instead
+  takeoff_height: 5.0  # Meters
+
+# Logging configuration
+logging:
+  level: INFO
+  log_dir: logs

@@ -24,8 +24,9 @@ class AirSimInterface:
         self.client = None
         self.is_connected = False
         
-        self.airsim_ip = config.get('airsim_ip', '127.0.0.1')
-        self.airsim_port = config.get('airsim_port', 41451)
+        self.airsim_ip = config.get('ip', '127.0.0.1')
+        self.airsim_port = config.get('port', 41451)
+        self.camera_name = config.get('camera_name', '0')
         
     def connect(self) -> bool:
         """
@@ -55,18 +56,21 @@ class AirSimInterface:
             self.logger.error(f"Error connecting to AirSim: {e}")
             return False
     
-    def get_camera_image(self, camera_name: str = "0") -> Optional[np.ndarray]:
+    def get_camera_image(self, camera_name: Optional[str] = None) -> Optional[np.ndarray]:
         """
         Get camera image from AirSim.
         
         Args:
-            camera_name: Camera name
+            camera_name: Camera name (uses default from config if not specified)
             
         Returns:
             BGR image or None
         """
         if not self.is_connected or self.client is None:
             return None
+        
+        if camera_name is None:
+            camera_name = self.camera_name
         
         try:
             import airsim

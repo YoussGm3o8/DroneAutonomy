@@ -28,6 +28,7 @@ class YOLODetector:
         self.confidence_threshold = config.get('confidence_threshold', 0.5)
         self.nms_threshold = config.get('nms_threshold', 0.4)
         self.classes = config.get('classes', None)
+        self.imgsz = config.get('imgsz', 640)  # Input image size for inference
         
     def load_model(self) -> bool:
         """
@@ -79,8 +80,9 @@ class YOLODetector:
             import time
             start_time = time.time()
             
-            # Run inference
-            results = self.model(frame, conf=self.confidence_threshold, iou=self.nms_threshold, verbose=False)
+            # Run inference with specified input size
+            results = self.model(frame, conf=self.confidence_threshold, iou=self.nms_threshold, 
+                               imgsz=self.imgsz, verbose=False)
             
             inference_time = time.time() - start_time
             
@@ -128,6 +130,8 @@ class YOLODetector:
         
         for det in detections:
             x1, y1, x2, y2 = det['bbox']
+            # Convert to integers (important for scaled coordinates)
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
             class_name = det['class_name']
             confidence = det['confidence']
             

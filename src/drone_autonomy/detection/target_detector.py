@@ -34,6 +34,9 @@ class TargetDetector:
         self.max_radius = config.get('max_radius', 200)
         self.circle_threshold = config.get('circle_threshold', 0.7)
         
+        # Downscale for faster processing
+        self.downscale_factor = config.get('downscale_factor', 2)  # Process at half resolution
+        
     def detect(self, frame: np.ndarray) -> Tuple[List[dict], float]:
         """
         Detect red circular targets in a frame.
@@ -49,30 +52,42 @@ class TargetDetector:
             import time
             start_time = time.time()
             
+            # Downscale for faster processing
+            h, w = frame.shape[:2]
+            small_frame = cv2.resize(frame, (w // self.downscale_factor, h // self.downscale_factor))
+            
             # Convert to HSV
-            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(small_frame, cv2.COLOR_BGR2HSV)
             
             # Create mask for red color (two ranges)
             mask1 = cv2.inRange(hsv, self.hsv_lower1, self.hsv_upper1)
             mask2 = cv2.inRange(hsv, self.hsv_lower2, self.hsv_upper2)
             mask = cv2.bitwise_or(mask1, mask2)
             
-            # Apply morphological operations to reduce noise
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            # Apply morphological operations to reduce noise (smaller kernel for downscaled image)
+            kernel_size = max(3, 5 // self.downscale_factor)
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
             mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
             
-            # Detect circles using Hough Circle Transform
-            blurred = cv2.GaussianBlur(mask, (9, 9), 2)
+            # Detect circles using Hough Circle Transform (scaled parameters)
+            blur_size = max(5, 9 // self.downscale_factor)
+            if blur_size % 2 == 0:
+                blur_size += 1
+            blurred = cv2.GaussianBlur(mask, (blur_size, blur_size), 2)
+            
+            min_radius_scaled = max(5, self.min_radius // self.downscale_factor)
+            max_radius_scaled = self.max_radius // self.downscale_factor
+            
             circles = cv2.HoughCircles(
                 blurred,
                 cv2.HOUGH_GRADIENT,
                 dp=1,
-                minDist=self.min_radius * 2,
+                minDist=min_radius_scaled * 2,
                 param1=50,
                 param2=30,
-                minRadius=self.min_radius,
-                maxRadius=self.max_radius
+                minRadius=min_radius_scaled,
+                maxRadius=max_radius_scaled
             )
             
             targets = []
@@ -90,11 +105,16 @@ class TargetDetector:
                     coverage = np.count_nonzero(intersection) / np.count_nonzero(circle_mask)
                     
                     if coverage >= self.circle_threshold:
+                        # Scale coordinates back to original resolution
+                        x_orig = x * self.downscale_factor
+                        y_orig = y * self.downscale_factor
+                        r_orig = r * self.downscale_factor
+                        
                         targets.append({
-                            'center': (x, y),
-                            'radius': r,
+                            'center': (x_orig, y_orig),
+                            'radius': r_orig,
                             'confidence': coverage,
-                            'bbox': (x - r, y - r, x + r, y + r)
+                            'bbox': (x_orig - r_orig, y_orig - r_orig, x_orig + r_orig, y_orig + r_orig)
                         })
             
             processing_time = time.time() - start_time

@@ -1,0 +1,100 @@
+# DroneAutonomy Testing Configuration
+# Uses webcam instead of RTSP for testing without drone
+
+# Video input configuration
+video:
+  backend: opencv  # Use opencv backend for webcam
+  camera_id: 0
+  width: 640
+  height: 480
+  fps: 30
+
+# Camera calibration parameters (for 640x480)
+camera:
+  fx: 500.0
+  fy: 500.0
+  cx: 320.0
+  cy: 240.0
+  k1: 0.0
+  k2: 0.0
+  p1: 0.0
+  p2: 0.0
+
+# Visual Inertial Odometry configuration
+vio:
+  enabled: false  # Disable VIO for webcam testing
+  type: vins-mono
+  imu_rate: 200
+  output_rate: 30
+
+# Depth estimation configuration
+depth:
+  model: depth_anything_v2_vits
+  device: cuda
+  input_size: [518, 518]
+  output_scale: 0.5  # Lower resolution for speed
+
+# YOLO object detection configuration
+detection:
+  yolo_model: yolov8n.pt
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+  device: cuda
+  use_tensorrt: false
+  classes:
+    - person
+    - car
+    - truck
+    - bicycle
+    - bottle
+    - cup
+    - laptop
+    - mouse
+    - keyboard
+    - cell phone
+    - book
+
+# Target detection configuration
+target_detection:
+  min_circularity: 0.6
+  color_lower: [0, 100, 100]  # HSV red lower
+  color_upper: [10, 255, 255]  # HSV red upper
+  min_radius: 15
+  max_radius: 200
+  confidence_threshold: 0.5
+
+# MAVLink telemetry configuration
+mavlink:
+  enabled: false  # Disable MAVLink for webcam testing
+  connection_string: udp:127.0.0.1:14550
+  baud_rate: 57600
+  vehicle_type: copter
+
+# Fusion and decision layer configuration
+fusion:
+  depth_weight: 0.6
+  detection_weight: 0.4
+  min_confidence: 0.6
+  proximity_threshold: 2.0  # meters
+
+# Pipeline processing configuration
+pipeline:
+  max_workers: 4
+  queue_size: 2
+  visualization: true
+  save_output: false
+  output_path: output/
+  display_fps: true
+
+# Autonomous navigation configuration
+autonomous:
+  enabled: false  # Disable autonomous mode for basic testing
+  mode: explore
+  max_speed: 5.0
+  safe_distance: 3.0
+  obstacle_distance: 2.0
+  target_search_enabled: true
+  target_approach_distance: 1.0
+  target_centering_tolerance: 50
+  photo_on_target: false
+  log_targets: false

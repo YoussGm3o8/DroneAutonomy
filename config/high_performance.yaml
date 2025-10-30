@@ -1,10 +1,12 @@
-# DroneAutonomy Vision Pipeline Configuration
+# DroneAutonomy Vision Pipeline Configuration - HIGH PERFORMANCE MODE
+# Optimized for 20+ FPS real-time performance
 
 # Video input configuration
 video:
   # GStreamer pipeline for RTSP stream from drone (1080p 60fps)
-  # FIXED: Using UDP protocol (default) instead of TCP for better compatibility
-  gstreamer_pipeline: "rtspsrc location=rtsp://192.168.1.231:8554/1 latency=0 ! rtph265depay ! h265parse ! avdec_h265 ! videoconvert ! video/x-raw,format=BGR ! appsink drop=true max-buffers=1 sync=false"
+  # Validated working with custom OpenCV + GStreamer 1.26.7
+  # Drop frames and reduce latency for real-time display
+  gstreamer_pipeline: "rtspsrc location=rtsp://192.168.1.231:8554/1 latency=0 ! decodebin ! videoconvert ! appsink drop=true max-buffers=1"
   width: 1920
   height: 1080
   fps: 60
@@ -24,27 +26,41 @@ camera:
 
 # Visual Inertial Odometry configuration
 vio:
-  enabled: true
+  enabled: false  # Disabled for max FPS
   type: vins-mono  # Options: vins-mono, orb-slam3
   imu_rate: 200
   output_rate: 30
 
 # Depth estimation configuration
 depth:
-  model: depth_anything_v2_vits  # Lightest and fastest Depth Anything V2 model (RECOMMENDED)
-  # Options: depth_anything_v2_vits (lightest/fastest), depth_anything_v2_vitb (medium), depth_anything_v2_vitl (largest)
+  model: depth_anything_v2_vits  # Fastest Depth Anything V2 model
   device: cuda  # Options: cuda, cpu
-  input_size: [640, 480]  # Depth processing at 480p for maximum performance
-  output_scale: 0.5  # Further scale down output if needed (0.5 = 320x240 final output)
+  input_size: [518, 518]  # Optimal for Depth Anything V2
+  output_scale: 0.5
 
-# Red circular target detection configuration (OpenCV - lightweight and fast)
+# YOLO object detection configuration - OPTIMIZED
+detection:
+  yolo_model: yolov8n.pt  # Fastest YOLO variant
+  confidence_threshold: 0.6  # Slightly higher to reduce false positives
+  nms_threshold: 0.4
+  device: cuda
+  use_tensorrt: false  # Enable for optimized inference (requires setup)
+  imgsz: 416  # Reduced from default 640 for faster inference
+  classes:
+    - person
+    - car
+    - truck
+    - bicycle
+    - motorcycle
+
+# Red circular target detection configuration
 target_detection:
   hsv_lower: [0, 100, 100]   # Lower HSV threshold for red
   hsv_upper: [10, 255, 255]  # Upper HSV threshold for red
   min_radius: 10
   max_radius: 200
   circle_threshold: 0.7
-  downscale_factor: 2  # Process at half resolution for 5x speedup
+  downscale_factor: 2  # Process at half resolution for 4x speedup
 
 # MAVLink telemetry configuration
 mavlink:
@@ -65,36 +81,10 @@ fusion:
 # AirSim simulation configuration
 simulation:
   enabled: false
-  airsim_ip: 127.0.0.1
-  airsim_port: 41451
+  ip: 127.0.0.1
+  timeout: 10
 
 # Logging configuration
 logging:
-  level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  save_video: false
-  save_detections: true
+  level: WARNING  # Reduced logging for performance
   log_dir: logs
-
-# Autonomous navigation configuration
-autonomous:
-  # Obstacle detection parameters
-  obstacle_distance_threshold: 3.0  # meters
-  
-  # Target approach parameters
-  approach_distance_target: 2.0  # meters
-  approach_distance_min: 1.5  # meters
-  centering_tolerance: 50  # pixels
-  
-  # PID controller gains
-  pid_kp: 0.5
-  pid_ki: 0.1
-  pid_kd: 0.2
-  
-  # Speed limits
-  max_yaw_rate: 30.0  # deg/s
-  max_forward_speed: 1.0  # m/s
-  max_lateral_speed: 0.5  # m/s
-  
-  # Logging
-  log_dir: logs/autonomous
-  photo_dir: logs/autonomous/photos

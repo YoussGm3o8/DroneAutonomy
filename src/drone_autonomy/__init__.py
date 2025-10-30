@@ -7,6 +7,10 @@ state estimation, depth perception, and object/marker detection suitable for non
 GPS-degraded flight.
 """
 
+# Setup OpenCV and GStreamer DLLs before any cv2 imports
+from .utils.dll_setup import setup_opencv_gstreamer_dlls
+setup_opencv_gstreamer_dlls()
+
 __version__ = "0.1.0"
 __author__ = "DroneAutonomy Team"
 

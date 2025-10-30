@@ -1,5 +1,6 @@
 """Fusion and decision layer for combining depth and detection outputs."""
 
+import cv2
 import numpy as np
 import logging
 from typing import List, Dict, Tuple, Optional
@@ -199,6 +200,83 @@ class DecisionLayer:
         
         return command
     
+    def compute_avoidance_from_depth(self, depth_map: np.ndarray,
+                                     frame_width: int, frame_height: int) -> Dict[str, any]:
+        """
+        Compute avoidance command directly from depth map (no YOLO detections).
+        Analyzes depth map to detect close obstacles in different regions.
+        
+        Args:
+            depth_map: Depth map (0.0=near, 1.0=far)
+            frame_width: Original frame width
+            frame_height: Original frame height
+            
+        Returns:
+            Avoidance command dictionary with direction and min_distance
+        """
+        if depth_map is None or depth_map.size == 0:
+            return {'direction': 'none', 'min_distance': 10.0}
+        
+        # Resize depth map to match frame dimensions if needed
+        if depth_map.shape[1] != frame_width or depth_map.shape[0] != frame_height:
+            depth_map = cv2.resize(depth_map, (frame_width, frame_height))
+        
+        h, w = depth_map.shape
+        
+        # Divide frame into regions (left, center, right, top, bottom)
+        region_threshold = 0.3  # Depth < 0.3 = close obstacle (~3m or less with scale=10)
+        
+        # Define regions
+        left_region = depth_map[:, :w//3]
+        center_region = depth_map[:, w//3:2*w//3]
+        right_region = depth_map[:, 2*w//3:]
+        top_region = depth_map[:h//3, :]
+        bottom_region = depth_map[2*h//3:, :]
+        
+        # Calculate minimum depth in each region
+        left_min = np.min(left_region)
+        center_min = np.min(center_region)
+        right_min = np.min(right_region)
+        top_min = np.min(top_region)
+        bottom_min = np.min(bottom_region)
+        
+        overall_min = min(left_min, center_min, right_min, top_min, bottom_min)
+        min_distance = overall_min * 10.0  # Convert to approximate meters
+        
+        # Determine avoidance direction
+        if overall_min > region_threshold:
+            return {'direction': 'none', 'min_distance': min_distance}
+        
+        # Priority: avoid based on closest obstacle
+        if center_min < region_threshold:
+            # Obstacle ahead - check which side is clearer
+            if left_min > right_min:
+                direction = 'left'
+            else:
+                direction = 'right'
+        elif left_min < region_threshold:
+            direction = 'right'
+        elif right_min < region_threshold:
+            direction = 'left'
+        elif top_min < region_threshold:
+            direction = 'down'
+        elif bottom_min < region_threshold:
+            direction = 'up'
+        else:
+            direction = 'none'
+        
+        return {
+            'direction': direction,
+            'min_distance': min_distance,
+            'region_depths': {
+                'left': left_min * 10.0,
+                'center': center_min * 10.0,
+                'right': right_min * 10.0,
+                'top': top_min * 10.0,
+                'bottom': bottom_min * 10.0
+            }
+        }
+    
     def compute_target_approach(self, fused_targets: List[dict],
                                frame_width: int, frame_height: int) -> Dict[str, float]:
         """
@@ -214,6 +292,7 @@ class DecisionLayer:
         """
         command = {
             'approach': False,
+            'action': 'none',
             'offset_x': 0.0,
             'offset_y': 0.0,
             'distance': 0.0,
@@ -235,6 +314,7 @@ class DecisionLayer:
         target_center = best_target.get('center', (center_x, center_y))
         
         command['approach'] = True
+        command['action'] = 'approach'
         command['offset_x'] = (target_center[0] - center_x) / frame_width
         command['offset_y'] = (target_center[1] - center_y) / frame_height
         command['distance'] = best_target.get('distance', 0.0)

@@ -1,0 +1,46 @@
+# Autonomous Navigation Configuration
+# Configuration for obstacle avoidance, target approach, and mission execution
+
+# Enable autonomous navigation mode
+enabled: true
+
+# Obstacle detection parameters
+obstacle_distance_threshold: 3.0  # meters - distance to consider as obstacle
+obstacle_check_region: center  # Region to check: center, full, lower_half
+
+# Target approach parameters
+approach_distance_target: 2.0  # meters - ideal distance from target
+approach_distance_min: 1.5  # meters - minimum safe distance
+centering_tolerance: 50  # pixels - tolerance for target centering
+
+# PID controller gains for target centering
+pid_kp: 0.5  # Proportional gain
+pid_ki: 0.1  # Integral gain
+pid_kd: 0.2  # Derivative gain
+
+# Speed limits (meters/second and degrees/second)
+max_yaw_rate: 30.0  # deg/s - maximum yaw rotation rate
+max_forward_speed: 1.0  # m/s - maximum forward velocity
+max_lateral_speed: 0.5  # m/s - maximum lateral velocity
+max_vertical_speed: 0.5  # m/s - maximum vertical velocity
+
+# Logging configuration
+log_dir: logs/autonomous  # Directory for target logs and photos
+photo_dir: logs/autonomous/photos  # Directory for target photos
+log_telemetry: true  # Enable telemetry logging (GPS, heading, altitude)
+
+# Safety parameters
+emergency_stop_on_connection_loss: true
+emergency_stop_on_low_battery: true
+low_battery_threshold: 20  # percent
+
+# Mission parameters
+search_pattern: spiral  # spiral, grid, random
+search_altitude: 5.0  # meters - altitude for search pattern
+max_mission_time: 600  # seconds - maximum mission duration (10 minutes)
+max_targets_per_mission: 10  # Maximum number of targets to log per mission
+
+# State machine parameters
+target_lost_timeout: 3.0  # seconds - time before switching back to search
+centering_timeout: 10.0  # seconds - maximum time to spend centering
+approach_timeout: 15.0  # seconds - maximum time to spend approaching
