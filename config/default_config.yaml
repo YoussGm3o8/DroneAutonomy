@@ -1,0 +1,85 @@
+# DroneAutonomy Vision Pipeline Configuration
+
+# Video input configuration
+video:
+  # GStreamer pipeline for H.264/H.265 over UDP
+  gstreamer_pipeline: "udpsrc port=5600 ! application/x-rtp ! rtph264depay ! h264parse ! avdec_h264 ! videoconvert ! appsink"
+  width: 1280
+  height: 720
+  fps: 30
+  backend: gstreamer  # Options: gstreamer, opencv
+  camera_id: 0  # For opencv backend
+
+# Camera calibration parameters
+camera:
+  fx: 500.0  # Focal length x
+  fy: 500.0  # Focal length y
+  cx: 640.0  # Principal point x
+  cy: 360.0  # Principal point y
+  k1: 0.0    # Radial distortion k1
+  k2: 0.0    # Radial distortion k2
+  p1: 0.0    # Tangential distortion p1
+  p2: 0.0    # Tangential distortion p2
+
+# Visual Inertial Odometry configuration
+vio:
+  enabled: true
+  type: vins-mono  # Options: vins-mono, orb-slam3
+  imu_rate: 200
+  output_rate: 30
+
+# Depth estimation configuration
+depth:
+  model: MiDaS_small  # Options: MiDaS_small, DPT_Hybrid, DPT_Large
+  device: cuda  # Options: cuda, cpu
+  input_size: [384, 384]
+  output_scale: 0.5
+
+# YOLO object detection configuration
+detection:
+  yolo_model: yolov8n.pt  # Options: yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+  device: cuda
+  use_tensorrt: false  # Enable for optimized inference
+  classes:
+    - person
+    - car
+    - truck
+    - bicycle
+    - motorcycle
+
+# Red circular target detection configuration
+target_detection:
+  hsv_lower: [0, 100, 100]   # Lower HSV threshold for red
+  hsv_upper: [10, 255, 255]  # Upper HSV threshold for red
+  min_radius: 10
+  max_radius: 200
+  circle_threshold: 0.7
+
+# MAVLink telemetry configuration
+mavlink:
+  connection_string: "udp:127.0.0.1:14550"  # MAVLink connection
+  baud: 57600
+  vio_publish_rate: 30  # Hz
+  telemetry_rate: 10    # Hz
+
+# Fusion and decision layer configuration
+fusion:
+  depth_weight: 0.6
+  detection_weight: 0.4
+  min_confidence: 0.6
+  proximity_threshold: 2.0  # meters
+
+# AirSim simulation configuration
+simulation:
+  enabled: false
+  airsim_ip: 127.0.0.1
+  airsim_port: 41451
+
+# Logging configuration
+logging:
+  level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  save_video: false
+  save_detections: true
+  log_dir: logs
