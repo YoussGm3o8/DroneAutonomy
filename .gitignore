@@ -205,3 +205,25 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# DroneAutonomy specific
+# Model files
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+
+# Data directories
+data/
+logs/
+calibration_images/
+
+# Video recordings
+*.mp4
+*.avi
+*.mkv
+
+# Depth maps and images
+depth_maps/
+detections/
