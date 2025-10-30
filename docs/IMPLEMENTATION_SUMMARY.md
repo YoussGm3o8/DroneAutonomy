@@ -57,7 +57,7 @@ Successfully implemented a comprehensive autonomous perception and decision supp
   - VISION_POSITION_ESTIMATE message publishing
   - Telemetry reading (attitude, position, velocity, GPS)
   - Rate-limited publishing
-  - Compatible with ArduPilot VIO/VISO interface
+  - Compatible with ArduPilot VIO interface
 
 #### 7. Simulation Support (`src/drone_autonomy/simulation/`)
 - **AirSimInterface**: Microsoft AirSim integration
@@ -179,7 +179,7 @@ Comprehensive YAML-based configuration with sections for:
 - **Modules**: 8 core modules + utilities
 - **Example scripts**: 6
 - **Test modules**: 2
-- **Documentation files**: 4
+- **Documentation files**: 5
 - **Configuration files**: 1 (with complete schema)
 
 ## Technical Specifications Met
