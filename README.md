@@ -89,6 +89,10 @@ python examples\test_depth_estimation.py
 # Test obstacle avoidance visualization (Tesla-style)
 python examples\test_obstacle_avoidance.py
 
+# Test MAVLink object avoidance (NEW!)
+python examples\simple_mavlink_avoidance.py
+python examples\test_mavlink_avoidance.py
+
 # Run basic pipeline with real drone
 python examples\run_basic.py
 ```
@@ -132,6 +136,16 @@ For more details, see:
    - GPS/telemetry logging for each target
    - Automatic photo capture on target lock
    - See [Autonomous Mode Guide](docs/AUTONOMOUS_MODE.md)
+
+3.5. **MAVLink Object Avoidance** 🆕
+   - Real-time obstacle detection with depth estimation
+   - Multi-path trajectory planning and evaluation
+   - MAVLink velocity command execution for avoidance
+   - Emergency stop on critical obstacles
+   - Tesla-style visualization overlay
+   - Comprehensive MAVLink command support (takeoff, land, RTL, waypoints)
+   - Compatible with ArduPilot and PX4
+   - See [MAVLink Object Avoidance Guide](docs/MAVLINK_OBJECT_AVOIDANCE.md)
 
 4. **Competition Tasks** 🆕
    - Target Search with GPS logging

@@ -1,0 +1,115 @@
+# MAVLink Object Avoidance Configuration
+# This configuration enables real-time obstacle avoidance with MAVLink command execution
+
+# MAVLink Connection Settings
+mavlink:
+  connection_string: 'udp:127.0.0.1:14550'  # SITL default
+  baud: 57600
+  auto_detect: true
+  heartbeat_timeout: 5
+  vio_publish_rate: 30
+  telemetry_rate: 10
+
+# Video Input Settings
+video:
+  backend: 'gstreamer'  # 'gstreamer', 'opencv', 'airsim'
+  source: 'rtsp://192.168.1.231:8554/1'
+  width: 1920
+  height: 1080
+  fps: 30
+  codec: 'h265'
+
+# Depth Estimation Settings
+depth:
+  enabled: true
+  model: 'depth_anything_v2_vits'  # Fast model for real-time avoidance
+  device: 'cuda'
+  scale_output: 0.5  # Downsample for speed
+  metric_calibration: true
+  use_altitude: true
+
+# Obstacle Avoidance Settings
+obstacle_avoidance:
+  # Detection parameters
+  obstacle_distance_threshold: 5.0  # meters - detect obstacles within this range
+  critical_distance: 2.0  # meters - trigger emergency procedures
+  warning_distance: 3.5  # meters - high-risk warning
+
+  # Detection zones
+  num_zones_horizontal: 7  # Divide frame into zones for detection
+  num_zones_vertical: 3
+
+  # Path planning
+  num_path_candidates: 7  # Number of alternative paths to evaluate
+  path_horizon: 80  # pixels - how far ahead to plan
+  path_lateral_range: 200  # pixels - lateral search range
+
+  # Safety parameters
+  min_clearance: 1.5  # meters - minimum clearance required
+  safety_margin: 0.8  # meters - additional safety buffer
+
+  # Visualization
+  show_zones: true
+  show_paths: true
+  show_obstacles: true
+  path_alpha: 0.6
+
+  # Target detection integration
+  target_priority: true
+  target_override_distance: 6.0  # meters - disable avoidance when target is close
+
+# MAVLink Avoidance Controller Settings
+avoidance_controller:
+  # Velocity parameters
+  max_velocity: 3.0  # m/s - maximum velocity
+  avoidance_velocity: 1.5  # m/s - velocity during avoidance
+  lateral_gain: 2.0  # Lateral correction gain
+
+  # Safety parameters
+  emergency_distance: 1.5  # m - trigger emergency stop
+  enable_emergency_stop: true
+  min_altitude: 2.0  # m - minimum safe altitude
+  max_altitude: 50.0  # m - maximum altitude limit
+
+  # Control rate
+  update_rate: 20  # Hz - controller update frequency
+
+# Object Detection (optional - for additional obstacle detection)
+detection:
+  enabled: true
+  model: 'yolov8n'  # Lightweight model
+  device: 'cuda'
+  confidence_threshold: 0.6
+  classes_to_detect: ['person', 'car', 'truck', 'bicycle', 'motorcycle', 'bus']
+
+# Visual Odometry (for position feedback)
+vio:
+  enabled: true
+  feature_detector: 'orb'
+  max_features: 500
+  min_features: 50
+  publish_rate: 30
+
+# Display and Logging
+display:
+  enabled: true
+  show_depth: true
+  show_detections: true
+  show_avoidance_overlay: true
+  window_width: 1280
+  window_height: 720
+  fps_display: true
+
+logging:
+  level: 'INFO'  # DEBUG, INFO, WARNING, ERROR
+  save_logs: true
+  log_directory: 'logs/avoidance'
+  save_telemetry: true
+  save_obstacles: true
+
+# Performance Settings
+performance:
+  use_tensorrt: false  # Enable TensorRT optimization (requires setup)
+  half_precision: false  # Use FP16 for faster inference
+  async_processing: true  # Process frames asynchronously
+  skip_frames: 0  # Process every Nth frame (0 = no skipping)

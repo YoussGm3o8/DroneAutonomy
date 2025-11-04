@@ -860,22 +860,22 @@ class MAVLinkTelemetry:
     def set_mode(self, mode: str) -> bool:
         """
         Send flight mode change command to vehicle.
-        
+
         Note: This sends the command but the actual mode is determined by HEARTBEAT
         messages from the vehicle. Use the `flight_mode` property and `flight_mode_changed`
         flag to detect when the vehicle actually changes modes.
-        
+
         Args:
             mode: Flight mode name (e.g., "GUIDED", "LOITER", "RTL", "STABILIZE")
                  Case-insensitive. See copter_modes dict for valid options.
-        
+
         Returns:
             True if mode command sent successfully, False otherwise
         """
         if not self.is_connected or self.connection is None:
             self.logger.warning("Cannot set mode: not connected to MAVLink")
             return False
-        
+
         # ArduPilot Copter mode mapping (reverse lookup)
         copter_modes = {
             "STABILIZE": 0, "ACRO": 1, "ALT_HOLD": 2, "AUTO": 3,
@@ -886,15 +886,15 @@ class MAVLinkTelemetry:
             "FLOWHOLD": 22, "FOLLOW": 23, "ZIGZAG": 24,
             "SYSTEMID": 25, "AUTOROTATE": 26, "AUTO_RTL": 27
         }
-        
+
         mode_upper = mode.upper()
         if mode_upper not in copter_modes:
             self.logger.error(f"Unknown flight mode: {mode}")
             self.logger.info(f"Valid modes: {', '.join(copter_modes.keys())}")
             return False
-        
+
         mode_id = copter_modes[mode_upper]
-        
+
         try:
             self.connection.mav.command_long_send(
                 self.connection.target_system,
@@ -910,6 +910,325 @@ class MAVLinkTelemetry:
             return True
         except Exception as e:
             self.logger.error(f"Error sending mode change command: {e}")
+            return False
+
+    def takeoff(self, altitude: float) -> bool:
+        """
+        Command vehicle to take off to specified altitude.
+
+        Args:
+            altitude: Target altitude in meters (AGL - Above Ground Level)
+
+        Returns:
+            True if takeoff command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot takeoff: not connected to MAVLink")
+            return False
+
+        try:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                0,  # confirmation
+                0, 0, 0, 0,  # params 1-4 (not used for copter)
+                0, 0,  # lat, lon (not used for copter)
+                altitude  # altitude
+            )
+            self.logger.info(f"Takeoff command sent: {altitude}m")
+            self._log_command(f"TAKEOFF to {altitude}m", "SUCCESS")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending takeoff command: {e}")
+            return False
+
+    def land(self) -> bool:
+        """
+        Command vehicle to land at current position.
+
+        Returns:
+            True if land command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot land: not connected to MAVLink")
+            return False
+
+        try:
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_NAV_LAND,
+                0,  # confirmation
+                0, 0, 0, 0,  # params 1-4
+                0, 0, 0  # lat, lon, alt (current position)
+            )
+            self.logger.info("Land command sent")
+            self._log_command("LAND command sent", "WARNING")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending land command: {e}")
+            return False
+
+    def return_to_launch(self) -> bool:
+        """
+        Command vehicle to return to launch position (RTL).
+
+        Returns:
+            True if RTL command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot RTL: not connected to MAVLink")
+            return False
+
+        try:
+            # Set mode to RTL
+            return self.set_mode("RTL")
+        except Exception as e:
+            self.logger.error(f"Error sending RTL command: {e}")
+            return False
+
+    def goto_position_global(self, lat: float, lon: float, alt: float) -> bool:
+        """
+        Command vehicle to fly to global position (GPS coordinates).
+
+        Args:
+            lat: Latitude in degrees
+            lon: Longitude in degrees
+            alt: Altitude in meters (AMSL - Above Mean Sea Level)
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot goto position: not connected to MAVLink")
+            return False
+
+        try:
+            # Send position target in global frame
+            self.connection.mav.set_position_target_global_int_send(
+                0,  # time_boot_ms
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                0b0000111111111000,  # type_mask (position only)
+                int(lat * 1e7),  # lat in degE7
+                int(lon * 1e7),  # lon in degE7
+                alt,  # altitude
+                0, 0, 0,  # velocities
+                0, 0, 0,  # accelerations
+                0, 0  # yaw, yaw_rate
+            )
+            self.logger.info(f"Goto position command sent: lat={lat}, lon={lon}, alt={alt}")
+            self._log_command(f"GOTO position: ({lat:.6f}, {lon:.6f}) @ {alt}m", "INFO")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending goto position command: {e}")
+            return False
+
+    def set_yaw(self, yaw_deg: float, yaw_rate_degs: float = 10.0, relative: bool = False) -> bool:
+        """
+        Command vehicle to rotate to specified yaw angle.
+
+        Args:
+            yaw_deg: Target yaw angle in degrees (0-360)
+            yaw_rate_degs: Yaw rate in degrees per second (default: 10.0)
+            relative: If True, yaw is relative to current heading. If False, absolute (default: False)
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot set yaw: not connected to MAVLink")
+            return False
+
+        try:
+            # Direction: 1 = clockwise, -1 = counter-clockwise (auto-select shortest path = 0)
+            direction = 0
+
+            # Relative flag: 0 = absolute, 1 = relative
+            is_relative = 1 if relative else 0
+
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_CONDITION_YAW,
+                0,  # confirmation
+                yaw_deg,  # target yaw angle
+                yaw_rate_degs,  # yaw rate
+                direction,  # direction (-1 ccw, 1 cw, 0 auto)
+                is_relative,  # relative (0 = absolute, 1 = relative)
+                0, 0, 0  # unused
+            )
+            rel_str = "relative" if relative else "absolute"
+            self.logger.info(f"Set yaw command sent: {yaw_deg}° ({rel_str})")
+            self._log_command(f"SET YAW to {yaw_deg}° ({rel_str})", "INFO")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending set yaw command: {e}")
+            return False
+
+    def set_home_position(self, lat: Optional[float] = None, lon: Optional[float] = None, alt: Optional[float] = None) -> bool:
+        """
+        Set home position for the vehicle.
+
+        Args:
+            lat: Latitude in degrees (None = use current position)
+            lon: Longitude in degrees (None = use current position)
+            alt: Altitude in meters AMSL (None = use current position)
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot set home: not connected to MAVLink")
+            return False
+
+        try:
+            if lat is None or lon is None or alt is None:
+                # Set home to current position
+                self.connection.mav.command_long_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_SET_HOME,
+                    0,  # confirmation
+                    1,  # 1 = use current position
+                    0, 0, 0, 0, 0, 0
+                )
+                self.logger.info("Set home to current position")
+                self._log_command("SET HOME to current position", "INFO")
+            else:
+                # Set home to specified position
+                self.connection.mav.command_long_send(
+                    self.connection.target_system,
+                    self.connection.target_component,
+                    mavutil.mavlink.MAV_CMD_DO_SET_HOME,
+                    0,  # confirmation
+                    0,  # 0 = use specified position
+                    0, 0, 0,
+                    lat, lon, alt
+                )
+                self.logger.info(f"Set home to: lat={lat}, lon={lon}, alt={alt}")
+                self._log_command(f"SET HOME to ({lat:.6f}, {lon:.6f}) @ {alt}m", "INFO")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending set home command: {e}")
+            return False
+
+    def emergency_stop(self) -> bool:
+        """
+        Emergency stop - immediately disarm motors (USE WITH CAUTION!).
+        This will cause the drone to fall if in flight.
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot emergency stop: not connected to MAVLink")
+            return False
+
+        try:
+            # Force disarm (param2 = 21196 is the magic number for force disarm)
+            self.connection.mav.command_long_send(
+                self.connection.target_system,
+                self.connection.target_component,
+                mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+                0,  # confirmation
+                0,  # 0 = disarm
+                21196,  # force flag
+                0, 0, 0, 0, 0
+            )
+            self.logger.warning("EMERGENCY STOP command sent")
+            self._log_command("⚠️ EMERGENCY STOP - MOTORS DISARMED", "ERROR")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending emergency stop command: {e}")
+            return False
+
+    def pause(self) -> bool:
+        """
+        Pause current mission/movement (switch to BRAKE mode if available, otherwise LOITER).
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot pause: not connected to MAVLink")
+            return False
+
+        try:
+            # Try BRAKE mode first (better for immediate stop)
+            success = self.set_mode("BRAKE")
+            if not success:
+                # Fallback to LOITER
+                success = self.set_mode("LOITER")
+                if success:
+                    self.logger.info("Paused (switched to LOITER mode)")
+                    self._log_command("PAUSE - switched to LOITER", "WARNING")
+            else:
+                self.logger.info("Paused (switched to BRAKE mode)")
+                self._log_command("PAUSE - switched to BRAKE", "WARNING")
+            return success
+        except Exception as e:
+            self.logger.error(f"Error sending pause command: {e}")
+            return False
+
+    def resume_guided(self) -> bool:
+        """
+        Resume guided mode for autonomous control.
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot resume: not connected to MAVLink")
+            return False
+
+        return self.set_mode("GUIDED")
+
+    def send_velocity_with_yaw(self, vx: float, vy: float, vz: float, yaw_deg: float, frame: str = "body") -> bool:
+        """
+        Send velocity command with explicit yaw angle (improved version).
+
+        Args:
+            vx: Velocity in x-direction (m/s)
+            vy: Velocity in y-direction (m/s)
+            vz: Velocity in z-direction (m/s, positive = down)
+            yaw_deg: Yaw angle in degrees (0-360)
+            frame: "body" for body frame, "ned" for NED frame
+
+        Returns:
+            True if command sent successfully, False otherwise
+        """
+        if not self.is_connected or self.connection is None:
+            self.logger.warning("Cannot send velocity: not connected to MAVLink")
+            return False
+
+        try:
+            # Convert yaw to radians
+            yaw_rad = yaw_deg * DEG_TO_RAD
+
+            # Select frame
+            if frame.lower() == "body":
+                mav_frame = mavutil.mavlink.MAV_FRAME_BODY_NED
+            else:
+                mav_frame = mavutil.mavlink.MAV_FRAME_LOCAL_NED
+
+            # SET_POSITION_TARGET_LOCAL_NED with velocity and yaw
+            self.connection.mav.set_position_target_local_ned_send(
+                0,  # time_boot_ms
+                self.connection.target_system,
+                self.connection.target_component,
+                mav_frame,
+                0b0000111111000111,  # type_mask (velocity enabled, yaw enabled)
+                0, 0, 0,  # positions (not used)
+                vx, vy, vz,  # velocities
+                0, 0, 0,  # accelerations (not used)
+                yaw_rad, 0  # yaw (rad), yaw_rate (not used)
+            )
+            return True
+        except Exception as e:
+            self.logger.error(f"Error sending velocity with yaw command: {e}")
             return False
     
     def disconnect(self):
