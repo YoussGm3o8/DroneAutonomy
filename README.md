@@ -24,7 +24,24 @@ DroneAutonomy provides a laptop-hosted real-time pipeline that consumes a GStrea
 
 ## Quick Start
 
-### 1. Setup Virtual Environment
+### 1. Setup Gazebo Video (First Time Only)
+
+If you're using Gazebo simulation, run the automated setup:
+
+```powershell
+# Automated setup - installs GStreamer in WSL and configures NVIDIA GPU
+powershell -ExecutionPolicy Bypass -File scripts/setup_gazebo_video.ps1
+```
+
+This will:
+- Install GStreamer plugins in WSL
+- Configure NVIDIA GPU acceleration for Gazebo
+- Fix RTP video streaming issues
+- Set up firewall rules
+
+For manual setup or troubleshooting, see: `docs/GAZEBO_VIDEO_QUICK_REFERENCE.md`
+
+### 2. Setup Virtual Environment
 
 This project uses a virtual environment with automatic DLL path configuration for OpenCV and GStreamer:
 
@@ -41,7 +58,7 @@ The activation scripts will:
 - Configure OpenCV and GStreamer DLL paths automatically
 - Prepare the environment for computer vision operations
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 
 Dependencies are already installed if you cloned this repository. To reinstall or update:
 
@@ -69,6 +86,9 @@ python examples\test_yolo_detection.py
 # Test depth estimation
 python examples\test_depth_estimation.py
 
+# Test obstacle avoidance visualization (Tesla-style)
+python examples\test_obstacle_avoidance.py
+
 # Run basic pipeline with real drone
 python examples\run_basic.py
 ```
@@ -90,12 +110,21 @@ For more details, see:
 
 ### Core Capabilities
 
-1. **Video Input**
+1. **Graphical User Interface** 🆕
+   - Modern PyQt6-based control interface
+   - Live video display with multiple overlay modes
+   - Task selection and configuration
+   - Media gallery for photos/videos/deliverables
+   - Real-time telemetry monitoring
+   - Results viewer with scoring and logs
+   - See [GUI Documentation](src/drone_autonomy/gui/README.md)
+
+2. **Video Input**
    - GStreamer pipeline support for H.264/H.265 over UDP
    - OpenCV fallback for standard camera input
    - Configurable resolution and frame rate
 
-2. **Autonomous Navigation** 🆕
+3. **Autonomous Navigation**
    - Obstacle avoidance using depth estimation
    - Target detection and tracking (red circular markers)
    - Camera centering with PID control
@@ -104,43 +133,54 @@ For more details, see:
    - Automatic photo capture on target lock
    - See [Autonomous Mode Guide](docs/AUTONOMOUS_MODE.md)
 
-3. **Visual Odometry (VIO)**
+4. **Competition Tasks** 🆕
+   - Target Search with GPS logging
+   - Waypoint Navigation
+   - Obstacle Course
+   - Precision Landing
+   - Autonomous Wet-Capture with deliverables
+   - Landmark-based target descriptions
+   - See [Tasks Documentation](src/drone_autonomy/tasks/README.md)
+
+5. **Visual Odometry (VIO)**
    - 6-DoF pose estimation using monocular camera
    - Feature-based visual odometry
    - IMU integration support (when available)
    - Compatible with VINS-Mono and ORB-SLAM3 backends
 
-3. **Monocular Depth Estimation**
-   - MiDaS-based depth estimation
+6. **Monocular Depth Estimation** 🔄 *Multiple Models Supported*
+   - **Depth Anything V2** - State-of-the-art accuracy (Small/Base/Large variants)
+   - **MiDaS DPT_SwinV2_T_256** - Fastest with local model (80-150 FPS, no download)
    - Real-time inference on NVIDIA GPUs
-   - Multiple model sizes (small, hybrid, large)
-   - Dense or semi-dense depth maps
+   - Switch models dynamically via GUI or config
+   - Dense depth maps with superior accuracy
+   - See [Depth Model Selection Guide](DEPTH_MODELS.md)
 
-4. **Object Detection**
+7. **Object Detection**
    - YOLO-based obstacle detection (YOLOv8)
    - TensorRT optimization support
    - Real-time inference on NVIDIA GPUs
    - Configurable confidence thresholds
 
-5. **Target Detection**
+8. **Target Detection**
    - Red circular target detection
    - HSV color thresholding
    - Hough Circle Transform
    - Robust against clutter
 
-6. **Fusion and Decision Layer**
+9. **Fusion and Decision Layer**
    - Combines depth and detection outputs
    - Computes keep-out regions
    - Target gate identification
    - Prioritizes close detections
 
-7. **MAVLink Integration**
+10. **MAVLink Integration**
    - Visual odometry publication to ArduPilot
    - UDP-based telemetry
    - Compatible with ArduPilot VIO/VISO interface
    - Ground station communication
 
-8. **Simulation Support**
+11. **Simulation Support**
    - AirSim integration
    - Safe testing environment
    - Dataset generation
@@ -170,6 +210,33 @@ pip install airsim
 ```
 
 ## Quick Start
+
+### GUI Mode (Recommended for Beginners) 🆕
+
+Launch the graphical interface for interactive control:
+
+```bash
+# Quick start with demo mode (no hardware needed)
+python examples/demo_gui.py
+
+# Launch GUI with webcam
+python launch_gui.py --video-source webcam
+
+# Launch with RTSP stream
+python launch_gui.py --video-source rtsp://192.168.1.100:8554/stream
+
+# Launch with custom config
+python launch_gui.py --config config/high_performance.yaml
+```
+
+**GUI Features:**
+- 🎥 Live video with multiple overlay modes
+- ⚙️ Task selection and configuration
+- 📁 Media gallery (photos, videos, deliverables)
+- 📊 Results viewer with scoring
+- 📡 Real-time telemetry display
+
+See [GUI Documentation](src/drone_autonomy/gui/README.md) for full details.
 
 ### Running Modes
 
@@ -281,7 +348,7 @@ camera:
 #### Depth Estimation
 ```yaml
 depth:
-  model: MiDaS_small
+  model: depth_anything_v2_vits
   device: cuda
 ```
 
@@ -421,7 +488,7 @@ The first run will export and optimize the model.
 For systems with limited GPU memory, use smaller models:
 ```yaml
 depth:
-  model: MiDaS_small
+  model: depth_anything_v2_vits  # Lightest and fastest
 detection:
   yolo_model: yolov8n.pt  # nano model
 ```
@@ -499,7 +566,7 @@ tail -f logs/drone_autonomy_*.log
 
 **Solution**:
 - Enable TensorRT optimization
-- Use smaller models (MiDaS_small, yolov8n)
+- Use smaller models (depth_anything_v2_vits, yolov8n)
 - Reduce video resolution
 - Check GPU utilization
 
@@ -562,7 +629,7 @@ MIT License - See LICENSE file for details
 
 ## Acknowledgments
 
-- Intel ISL for MiDaS depth estimation
+- Depth Anything V2 team for state-of-the-art depth estimation
 - Ultralytics for YOLOv8
 - ArduPilot community for VIO integration guidance
 - Microsoft for AirSim simulation platform

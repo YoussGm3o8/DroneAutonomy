@@ -1,0 +1,110 @@
+# Gazebo Simulation Configuration
+# For use with Gazebo Garden/Harmonic and ArduPilot SITL running in WSL
+
+video:
+  # Use GStreamer backend to receive RTP stream from Gazebo
+  backend: gstreamer
+  
+  # GStreamer pipeline for UDP stream from WSL Gazebo
+  # This pipeline receives an RTP/H264 stream from Gazebo's GstCameraPlugin.
+  # The address 0.0.0.0 is critical for a Windows GUI to receive packets from WSL.
+  # It tells the receiver to listen on all available network interfaces.
+  gstreamer_pipeline: >
+    udpsrc address=0.0.0.0 port=5600 buffer-size=2097152 !
+    application/x-rtp, media=(string)video, clock-rate=(int)90000, encoding-name=(string)H264, payload=(int)96 ! 
+    rtpjitterbuffer latency=100 drop-on-latency=true !
+    rtph264depay ! 
+    avdec_h264 max-threads=4 !
+    videoconvert ! 
+    video/x-raw,format=BGR !
+    appsink drop=true max-buffers=1 sync=false emit-signals=true
+  
+  # UDP port for GStreamer (must match plugin config)
+  udp_port: 5600
+  
+  # Camera properties (must match your Gazebo camera sensor in the .sdf file)
+  width: 1280
+  height: 720
+  fps: 30
+
+camera:
+  # Camera calibration for Gazebo camera (from .sdf file)
+  fx: 932.0
+  fy: 932.0
+  cx: 640.0
+  cy: 360.0
+  k1: 0.0
+  k2: 0.0
+  p1: 0.0
+  p2: 0.0
+  k3: 0.0
+  
+  # Depth estimation scale for simulation (may need adjustment)
+  depth_scale: 1.0
+
+mavlink:
+  # ArduPilot SITL connection
+  connection_string: "udp:127.0.0.1:14550"
+  baud: 57600  # Not used for UDP but kept for compatibility
+  auto_detect: false  # Disable serial port auto-detection for SITL
+  heartbeat_timeout: 10  # Increased timeout for SITL startup
+  vio_publish_rate: 30
+  telemetry_rate: 10
+  timeout: 5.0
+  
+  # MAVLink stream rates (Hz)
+  stream_rates:
+    ALL: 0
+    POSITION: 10
+    ATTITUDE: 10
+    RC_CHANNELS: 5
+    EXTRA1: 10
+    EXTRA2: 10
+    EXTRA3: 10
+
+# Detection and tracking settings
+detection:
+  enabled: true
+  confidence_threshold: 0.5
+  nms_threshold: 0.4
+  model_path: "yolov8n.pt"
+  target_classes: [0, 1, 2, 3]  # person, bicycle, car, motorcycle
+
+# Depth estimation
+depth:
+  enabled: true
+  model: "dpt_levit_224"  # Lighter model for simulation
+  max_depth: 100.0
+  min_depth: 0.1
+
+# Obstacle avoidance
+autonomous:
+  enabled: false  # Enable when ready to test
+  avoidance:
+    safe_distance: 3.0
+    warning_distance: 5.0
+    critical_distance: 2.0
+    reaction_time: 0.5
+    max_speed: 5.0  # m/s
+
+# Performance settings for simulation
+performance:
+  processing_fps: 30
+  display_fps: 30
+  skip_frames: 0
+  use_gpu: true
+
+# Logging
+logging:
+  level: "INFO"
+  log_dir: "logs"
+  save_images: true
+  save_video: false
+
+# GUI settings
+gui:
+  window_title: "DroneAutonomy - Gazebo Simulation"
+  theme: "dark"
+  show_fps: true
+  show_telemetry: true
+  fullscreen: false

@@ -64,7 +64,7 @@ def main():
     print("DroneAutonomy - Depth Estimation Test")
     print("=" * 80)
     print()
-    print("Testing MiDaS depth estimation.")
+    print("Testing Depth Anything V2 depth estimation.")
     print("Will try drone camera first, then fallback to webcam.")
     print("Press 'q' to quit.")
     print()
@@ -83,9 +83,9 @@ def main():
     
     # Configuration for depth estimation
     depth_config = config_obj.config.get('depth', {
-        'model': 'MiDaS_small',
+        'model': 'depth_anything_v2_vits',
         'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-        'input_size': (384, 384),
+        'input_size': (640, 480),
         'output_scale': 0.5
     })
     
@@ -95,7 +95,7 @@ def main():
     # Create estimator
     estimator = DepthEstimator(depth_config)
     
-    print("Loading MiDaS model...")
+    print("Loading Depth Anything V2 model...")
     if not estimator.load_model():
         print("Error: Failed to load depth model")
         return 1

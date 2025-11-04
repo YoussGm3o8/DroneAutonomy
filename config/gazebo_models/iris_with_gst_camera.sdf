@@ -1,0 +1,177 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="iris_with_gst_camera">
+    <pose>0 0 0.194923 0 0 0</pose>
+    
+    <!-- Base link -->
+    <link name="base_link">
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>1.5</mass>
+        <inertia>
+          <ixx>0.029125</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.029125</iyy>
+          <iyz>0</iyz>
+          <izz>0.055225</izz>
+        </inertia>
+      </inertial>
+      
+      <!-- Quadcopter body -->
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://iris_with_standoffs/meshes/iris.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+      
+      <collision name="collision">
+        <geometry>
+          <box>
+            <size>0.47 0.47 0.11</size>
+          </box>
+        </geometry>
+      </collision>
+    </link>
+    
+    <!-- Camera link -->
+    <link name="camera_link">
+      <pose relative_to="base_link">0.15 0 -0.05 0 0.52 0</pose>
+      
+      <inertial>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00001</iyy>
+          <iyz>0</iyz>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      
+      <!-- Camera visual -->
+      <visual name="camera_visual">
+        <geometry>
+          <box>
+            <size>0.03 0.05 0.02</size>
+          </box>
+        </geometry>
+        <material>
+          <ambient>0.2 0.2 0.2 1</ambient>
+          <diffuse>0.3 0.3 0.3 1</diffuse>
+        </material>
+      </visual>
+      
+      <!-- Camera sensor with GStreamer plugin -->
+      <sensor name="camera" type="camera">
+        <camera>
+          <horizontal_fov>1.047</horizontal_fov>  <!-- 60 degrees -->
+          <image>
+            <width>1280</width>
+            <height>720</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100</far>
+          </clip>
+          <lens>
+            <intrinsics>
+              <fx>932.0</fx>
+              <fy>932.0</fy>
+              <cx>640.0</cx>
+              <cy>360.0</cy>
+              <s>0</s>
+            </intrinsics>
+          </lens>
+        </camera>
+        <always_on>1</always_on>
+        <update_rate>30</update_rate>
+        <visualize>true</visualize>
+        <topic>camera</topic>
+        
+        <!-- GstCameraPlugin for GStreamer streaming -->
+        <plugin name="gst_camera_plugin" filename="libGstCameraPlugin.so">
+          <udp_host>127.0.0.1</udp_host>
+          <udp_port>5600</udp_port>
+        </plugin>
+        
+      </sensor>
+    </link>
+    
+    <!-- Joint connecting camera to base -->
+    <joint name="camera_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>camera_link</child>
+    </joint>
+    
+    <!-- Rotors (simplified, add all 4 rotors as needed) -->
+    <link name="rotor_0">
+      <pose relative_to="base_link">0.13 -0.22 0.023 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>0.00001</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00001</iyy>
+          <iyz>0</iyz>
+          <izz>0.00001</izz>
+        </inertia>
+      </inertial>
+      <visual name="rotor_0_visual">
+        <geometry>
+          <cylinder>
+            <radius>0.128</radius>
+            <length>0.005</length>
+          </cylinder>
+        </geometry>
+      </visual>
+    </link>
+    
+    <joint name="rotor_0_joint" type="revolute">
+      <parent>base_link</parent>
+      <child>rotor_0</child>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1e+12</lower>
+          <upper>1e+12</upper>
+          <effort>-1</effort>
+          <velocity>-1</velocity>
+        </limit>
+      </axis>
+    </joint>
+    
+    <!-- Add other rotors similarly... -->
+    
+    <!-- ArduPilot plugin -->
+    <plugin name="ardupilot_plugin" filename="libArduPilotPlugin.so">
+      <fdm_addr>127.0.0.1</fdm_addr>
+      <fdm_port_in>9002</fdm_port_in>
+      <fdm_port_out>9003</fdm_port_out>
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <lock_step>1</lock_step>
+      
+      <!-- Control channels -->
+      <control channel="0">
+        <type>VELOCITY</type>
+        <offset>0</offset>
+        <p_gain>0.20</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>1</i_max>
+        <i_min>-1</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+        <jointName>rotor_0_joint</jointName>
+        <multiplier>1</multiplier>
+        <controlVelocitySlowdownSim>1</controlVelocitySlowdownSim>
+      </control>
+    </plugin>
+    
+  </model>
+</sdf>

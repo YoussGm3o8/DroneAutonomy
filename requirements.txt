@@ -17,11 +17,11 @@ torch==2.7.1
 torchvision==0.22.1
 torchaudio==2.7.1
 ultralytics>=8.0.0  # YOLO models
-timm>=0.9.0  # For MiDaS depth estimation
+timm>=0.9.0  # For Depth Anything V2 vision transformer backbone
 
 # Depth estimation models
-# Depth Anything V2 (faster and more accurate than MiDaS)
-depth-anything-v2>=0.1.0  # Depth Anything V2 for state-of-the-art depth estimation
+# Depth Anything V2 (state-of-the-art monocular depth estimation)
+depth-anything-v2>=0.1.0  # Depth Anything V2 for fast and accurate depth estimation
 huggingface-hub>=0.20.0  # For downloading pretrained Depth Anything V2 weights
 
 # MAVLink communication
@@ -41,6 +41,10 @@ pyyaml>=6.0
 # Utilities
 tqdm>=4.65.0
 colorama>=0.4.6
+
+# GUI Framework (PyQt6)
+PyQt6>=6.6.0  # Modern Qt6-based GUI framework
+PyQt6-Qt6>=6.6.0  # Qt6 runtime libraries
 
 # AirSim for simulation (requires special installation)
 # Dependencies for AirSim

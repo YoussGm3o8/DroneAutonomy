@@ -1,0 +1,37 @@
+{
+  "depth": {
+    "model": "dpt_hybrid",
+    "device": "cuda",
+    "input_size": [
+      640,
+      480
+    ],
+    "output_scale": 0.5
+  },
+  "detection": {
+    "confidence_threshold": 0.5,
+    "nms_threshold": 0.4,
+    "imgsz": 640
+  },
+  "performance": {
+    "max_fps": 30,
+    "enable_depth": true,
+    "enable_detection": true
+  },
+  "display": {
+    "show_fps": false,
+    "default_view": "Full Overlay",
+    "depth_opacity": 50
+  },
+  "window": {
+    "x": 0,
+    "y": 23,
+    "width": 1536,
+    "height": 793
+  },
+  "splitters": {
+    "main": "000000ff00000001000000020000044c000001f400ffffffff010000000100",
+    "left": "000000ff0000000100000002000001eb000000dc00ffffffff010000000200",
+    "right": "000000ff0000000100000002000002580000019000ffffffff010000000200"
+  }
+}

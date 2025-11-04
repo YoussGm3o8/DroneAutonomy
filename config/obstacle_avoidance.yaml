@@ -1,0 +1,71 @@
+# Obstacle Avoidance Configuration
+# Tesla-style path visualization and collision avoidance
+
+# Core parameters
+obstacle_distance_threshold: 3.0  # meters - obstacles closer than this trigger avoidance
+critical_distance: 1.5  # meters - critical obstacle distance (emergency avoidance)
+warning_distance: 2.5  # meters - warning zone distance
+min_clearance: 1.0  # meters - minimum clearance required from obstacles
+safety_margin: 0.5  # meters - additional safety buffer
+
+# Detection zones
+# Divide camera view into grid for obstacle detection
+num_zones_horizontal: 5  # number of horizontal zones
+num_zones_vertical: 3  # number of vertical zones
+
+# Path planning
+num_path_candidates: 7  # number of path candidates to generate
+path_horizon: 80  # pixels ahead to plan path
+path_lateral_range: 150  # pixels left/right for lateral path options
+
+# Visualization settings
+show_zones: true  # display detection zone grid
+show_paths: true  # display path candidates
+show_obstacles: true  # display obstacle markers
+path_alpha: 0.65  # transparency for path overlay (0.0-1.0)
+
+# Target detection integration
+target_priority: true  # prioritize target approach over avoidance when safe
+target_override_distance: 5.0  # meters - allow target approach within this distance
+
+# Advanced settings
+depth_processing:
+  normalize_method: "minmax"  # or "percentile"
+  max_depth: 10.0  # meters - maximum depth range
+  confidence_threshold: 0.8  # minimum confidence for obstacle detection
+
+risk_thresholds:
+  critical: 1.5  # meters
+  high: 2.5  # meters
+  medium: 3.0  # meters
+  low: 4.0  # meters
+
+path_evaluation:
+  obstacle_weight: 3.0  # weight for obstacle proximity cost
+  length_weight: 0.5  # weight for path length cost
+  target_weight: 2.0  # weight for target distance cost
+  curvature_weight: 1.0  # weight for path curvature cost
+
+visualization_colors:
+  # RGB colors for visualization
+  safe_path: [0, 255, 0]  # green
+  unsafe_path: [100, 100, 100]  # gray
+  selected_path: [0, 255, 0]  # green
+  selected_path_unsafe: [0, 165, 255]  # orange
+  critical_obstacle: [0, 0, 255]  # red
+  high_obstacle: [0, 165, 255]  # orange
+  medium_obstacle: [0, 255, 255]  # yellow
+  low_obstacle: [0, 255, 0]  # green
+  vehicle_indicator: [255, 255, 255]  # white
+  hud_text: [255, 255, 255]  # white
+  hud_background: [0, 0, 0]  # black
+
+# Performance optimization
+enable_gpu: false  # use GPU for depth processing (if available)
+max_fps: 30  # maximum processing framerate
+downsample_factor: 1.0  # downsample depth map for faster processing (1.0 = no downsampling)
+
+# Logging
+log_obstacles: true  # log detected obstacles
+log_paths: false  # log generated paths (verbose)
+log_commands: true  # log avoidance commands

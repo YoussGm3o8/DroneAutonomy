@@ -66,9 +66,9 @@ print()
 # Test Depth
 print("Testing Depth Estimation...")
 depth_config = {
-    'model': 'MiDaS_small',
+    'model': 'depth_anything_v2_vits',
     'device': 'cuda',
-    'input_size': [384, 384]
+    'input_size': [640, 480]
 }
 depth = DepthEstimator(depth_config)
 depth.load_model()

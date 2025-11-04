@@ -33,9 +33,9 @@ vio:
 
 # Depth estimation configuration
 depth:
-  model: depth_anything_v2_vits  # Fastest Depth Anything V2 model
+  model: dpt_hybrid  # Fast MiDaS model with high quality (140ms/7 FPS)
   device: cuda  # Options: cuda, cpu
-  input_size: [518, 518]  # Optimal for Depth Anything V2
+  input_size: [384, 384]  # Optimal for DPT models
   output_scale: 0.5
 
 # YOLO object detection configuration - OPTIMIZED

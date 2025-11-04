@@ -25,7 +25,7 @@ This directory contains example scripts demonstrating various components of the 
   ```
 
 #### Depth Estimation
-- **test_depth_estimation.py**: Test MiDaS depth estimation
+- **test_depth_estimation.py**: Test Depth Anything V2 depth estimation
   ```bash
   python examples/test_depth_estimation.py
   ```
@@ -57,7 +57,7 @@ pip install -r requirements.txt
 ```
 
 Some examples have additional requirements:
-- Depth estimation: MiDaS model (auto-downloaded)
+- Depth estimation: Depth Anything V2 model (auto-downloaded)
 - YOLO detection: YOLOv8 model (auto-downloaded)
 - AirSim: `pip install airsim`
 
@@ -75,7 +75,7 @@ Some examples have additional requirements:
 - Try different camera ID (0, 1, 2, etc.)
 
 **CUDA out of memory**:
-- Use smaller models (MiDaS_small, yolov8n)
+- Use smaller models (depth_anything_v2_vits, yolov8n)
 - Reduce video resolution
 
 **Model download failed**:

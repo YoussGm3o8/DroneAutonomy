@@ -49,9 +49,9 @@ class Config:
                 'output_rate': 30
             },
             'depth': {
-                'model': 'MiDaS_small',
+                'model': 'depth_anything_v2_vits',
                 'device': 'cuda',
-                'input_size': (384, 384),
+                'input_size': (640, 480),
                 'output_scale': 0.5
             },
             'detection': {

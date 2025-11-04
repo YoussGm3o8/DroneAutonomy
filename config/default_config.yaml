@@ -31,11 +31,35 @@ vio:
 
 # Depth estimation configuration
 depth:
-  model: depth_anything_v2_vits  # Lightest and fastest Depth Anything V2 model (RECOMMENDED)
-  # Options: depth_anything_v2_vits (lightest/fastest), depth_anything_v2_vitb (medium), depth_anything_v2_vitl (largest)
+  model: dpt_hybrid  # Depth model selection - RECOMMENDED: dpt_hybrid for best balance
+  # Options: 
+  #   - dpt_hybrid (MiDaS DPT_Hybrid - RECOMMENDED: Fast 140ms with high quality)
+  #   - dpt_large (MiDaS DPT_Large - Highest quality 174ms)
+  #   - midas_small (MiDaS Small - Lightweight 246ms for memory-constrained devices)
+  #   - depth_anything_v2_vits (Depth Anything V2 Small - balanced speed/quality)
+  #   - depth_anything_v2_vitb (Depth Anything V2 Base - better quality, slower)
+  #   - depth_anything_v2_vitl (Depth Anything V2 Large - best quality, slowest)
   device: cuda  # Options: cuda, cpu
-  input_size: [640, 480]  # Depth processing at 480p for maximum performance
-  output_scale: 0.5  # Further scale down output if needed (0.5 = 320x240 final output)
+  input_size: [640, 480]  # Depth processing resolution (width, height)
+  output_scale: 0.5  # Scale down output if needed (0.5 = 320x240 final output)
+  
+  # Metric depth calibration (converts relative depth to actual meters)
+  use_metric_calibration: true  # Enable altitude-based depth calibration
+  
+  # Camera parameters for geometric calibration
+  image_width: 1920
+  image_height: 1080
+  horizontal_fov: 90.0  # Horizontal field of view in degrees
+  
+  # Calibration settings
+  use_altitude_calibration: true  # Use barometer/GPS altitude to calibrate scale
+  use_ground_plane: true  # Estimate ground plane for additional constraint
+  min_altitude_for_calibration: 1.0  # Minimum altitude (meters) for calibration
+  ground_plane_sample_region: 0.3  # Use bottom 30% of image for ground detection
+  
+  # Fallback depth ranges (when not calibrated or no telemetry)
+  default_max_range: 10.0  # Maximum detectable distance (meters)
+  default_min_range: 0.5   # Minimum detectable distance (meters)
 
 # Red circular target detection configuration (OpenCV - lightweight and fast)
 target_detection:
@@ -98,3 +122,52 @@ autonomous:
   # Logging
   log_dir: logs/autonomous
   photo_dir: logs/autonomous/photos
+  
+  # Obstacle avoidance (Tesla-style visualization)
+  obstacle_avoidance:
+    # Core parameters
+    obstacle_distance_threshold: 3.0  # meters
+    critical_distance: 1.5  # meters
+    warning_distance: 2.5  # meters
+    min_clearance: 1.0  # meters
+    safety_margin: 0.5  # meters
+    
+    # Detection zones
+    num_zones_horizontal: 5
+    num_zones_vertical: 3
+    
+    # Path planning
+    num_path_candidates: 7
+    path_horizon: 80  # pixels
+    path_lateral_range: 150  # pixels
+    
+    # Visualization
+    show_zones: true
+    show_paths: true
+    show_obstacles: true
+    path_alpha: 0.65
+    
+    # Target integration
+    target_priority: true
+    target_override_distance: 5.0  # meters
+  
+  # Proximity sensors (ArduPilot integration)
+  proximity:
+    enabled: false  # Enable when rangefinders installed
+    critical_distance: 1.5  # meters
+    warning_distance: 2.5  # meters
+    sensor_timeout: 1.0  # seconds
+    enabled_directions:
+      - forward
+      - left
+      - right
+      - down
+  
+  # Safety arbitration (combines vision + sensors)
+  safety_arbitration:
+    enabled: false  # Enable when proximity sensors active
+    mode: parallel_redundant  # Options: vision_primary, sensor_primary, parallel_redundant, sensor_fusion
+    vision_weight: 0.7  # For sensor_fusion mode
+    sensor_weight: 0.3
+    emergency_distance: 1.0  # meters - hardware override threshold
+    critical_distance: 1.5  # meters

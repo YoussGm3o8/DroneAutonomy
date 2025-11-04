@@ -6,6 +6,18 @@ import logging
 from typing import Tuple, Optional
 import time
 
+# Try importing Gazebo camera support
+try:
+    from drone_autonomy.video.gazebo_camera import (
+        VideoStreamGazeboUDP,
+        VideoStreamGazeboROS2,
+        create_gazebo_stream,
+        ROS2_AVAILABLE
+    )
+    GAZEBO_AVAILABLE = True
+except ImportError:
+    GAZEBO_AVAILABLE = False
+
 
 class VideoStream:
     """
@@ -28,6 +40,15 @@ class VideoStream:
         self.frame_count = 0
         self.start_time = None
         
+        # Check if Gazebo backend requested
+        self.gazebo_stream = None
+        if config.get('backend') == 'gazebo':
+            if not GAZEBO_AVAILABLE:
+                self.logger.warning("Gazebo backend requested but not available")
+                self.logger.warning("Falling back to GStreamer. Install ROS2 for full Gazebo support.")
+            else:
+                self.logger.info("Gazebo backend detected - will use specialized Gazebo camera stream")
+        
     def start(self) -> bool:
         """
         Start video stream.
@@ -37,6 +58,16 @@ class VideoStream:
         """
         try:
             backend = self.config.get('backend', 'gstreamer')
+            
+            # Handle Gazebo backend
+            if backend == 'gazebo' and GAZEBO_AVAILABLE:
+                self.logger.info("Starting Gazebo camera stream...")
+                self.gazebo_stream = create_gazebo_stream(self.config)
+                success = self.gazebo_stream.start()
+                if success:
+                    self.is_running = True
+                    self.start_time = time.time()
+                return success
             
             if backend == 'gstreamer':
                 pipeline = self.config.get('gstreamer_pipeline')
@@ -96,7 +127,15 @@ class VideoStream:
         Returns:
             Tuple of (success, frame, timestamp)
         """
-        if not self.is_running or self.cap is None:
+        if not self.is_running:
+            return False, None, 0.0
+        
+        # Use Gazebo stream if available
+        if self.gazebo_stream is not None:
+            return self.gazebo_stream.read()
+        
+        # Use regular OpenCV capture
+        if self.cap is None:
             return False, None, 0.0
         
         ret, frame = self.cap.read()
@@ -114,6 +153,12 @@ class VideoStream:
         Returns:
             Dictionary with frame statistics
         """
+        # Use Gazebo stream info if available
+        if self.gazebo_stream is not None:
+            info = self.gazebo_stream.get_frame_info()
+            info['frame_count'] = self.frame_count  # Update with local count
+            return info
+        
         if not self.is_running or self.start_time is None:
             return {}
         
@@ -130,9 +175,16 @@ class VideoStream:
     
     def stop(self):
         """Stop video stream and release resources."""
+        # Stop Gazebo stream if active
+        if self.gazebo_stream is not None:
+            self.gazebo_stream.stop()
+            self.gazebo_stream = None
+        
+        # Stop regular capture
         if self.cap is not None:
             self.cap.release()
             self.cap = None
+        
         self.is_running = False
         self.logger.info("Video stream stopped")
     

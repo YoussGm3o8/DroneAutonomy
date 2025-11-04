@@ -13,6 +13,8 @@ import csv
 from pathlib import Path
 from datetime import datetime
 
+from .obstacle_avoidance import ObstacleAvoider
+
 
 class NavigationState(Enum):
     """States for autonomous navigation"""
@@ -90,6 +92,11 @@ class AutonomousController:
         self.csv_file = self.log_dir / f"targets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         self._init_csv()
         
+        # Initialize obstacle avoidance system
+        avoidance_config = config.get('obstacle_avoidance', {})
+        avoidance_config['obstacle_distance_threshold'] = self.obstacle_distance_threshold
+        self.obstacle_avoider = ObstacleAvoider(avoidance_config, logger)
+        
         self.logger.info(f"AutonomousController initialized in state: {self.state.value}")
         self.logger.info(f"Obstacle threshold: {self.obstacle_distance_threshold}m")
         self.logger.info(f"Approach target: {self.approach_distance_target}m (min: {self.approach_distance_min}m)")
@@ -124,17 +131,35 @@ class AutonomousController:
             'velocity_command': None,
             'yaw_rate_command': None,
             'target_locked': False,
-            'obstacle_detected': False
+            'obstacle_detected': False,
+            'avoidance_active': False
         }
         
-        # Check for obstacles in depth map
+        # Run obstacle detection
         if depth_map is not None:
-            obstacle_detected = self._check_obstacles(depth_map)
-            result['obstacle_detected'] = obstacle_detected
+            obstacles = self.obstacle_avoider.detect_obstacles(depth_map)
+            result['obstacle_detected'] = len(obstacles) > 0
             
-            if obstacle_detected and self.state not in [NavigationState.IDLE, NavigationState.EMERGENCY_STOP]:
-                self.logger.warning("Obstacle detected! Switching to avoidance mode")
-                self.state = NavigationState.AVOIDING_OBSTACLE
+            # Generate path candidates
+            target_position = None
+            if target_detection and target_detection.get('detected'):
+                target_position = target_detection['center']
+            
+            self.obstacle_avoider.generate_path_candidates(frame.shape, target_position)
+            
+            # Check if avoidance should be active
+            target_detected = target_detection and target_detection.get('detected')
+            target_distance = None
+            if target_detected and self.target_depth:
+                target_distance = self._depth_to_distance(self.target_depth)
+            
+            should_avoid = self.obstacle_avoider.should_avoid(target_detected, target_distance)
+            result['avoidance_active'] = should_avoid
+            
+            if should_avoid and self.state not in [NavigationState.IDLE, NavigationState.EMERGENCY_STOP]:
+                if self.state != NavigationState.AVOIDING_OBSTACLE:
+                    self.logger.warning("Obstacle detected! Switching to avoidance mode")
+                    self.state = NavigationState.AVOIDING_OBSTACLE
         
         # State machine
         if self.state == NavigationState.IDLE:
@@ -172,6 +197,12 @@ class AutonomousController:
                     # Calculate PID control for yaw (horizontal centering)
                     yaw_rate = self._calculate_pid_yaw(error_x)
                     result['yaw_rate_command'] = yaw_rate
+                    
+                    # Send yaw command to MAVLink
+                    if self.telemetry and self.telemetry.is_connected:
+                        yaw_rate_rad = np.deg2rad(yaw_rate)
+                        self.telemetry.send_velocity_body(0.0, 0.0, 0.0, yaw_rate_rad)
+                        self.logger.debug(f"Sent centering yaw rate: {yaw_rate:.2f} deg/s")
                     
                     # Optionally add pitch control for vertical centering
                     # (not implemented - requires ANGLE mode or velocity control)
@@ -213,12 +244,29 @@ class AutonomousController:
                         elif distance > self.approach_distance_target:
                             # Too far - move forward
                             forward_speed = min(self.max_forward_speed, (distance - self.approach_distance_target) * 0.5)
-                            result['velocity_command'] = {'forward': forward_speed, 'right': 0, 'down': 0}
+                            velocity_cmd = {'forward': forward_speed, 'right': 0, 'down': 0}
+                            result['velocity_command'] = velocity_cmd
+                            
+                            # Send velocity command to MAVLink
+                            if self.telemetry and self.telemetry.is_connected:
+                                self.telemetry.send_velocity_body(
+                                    velocity_cmd['forward'],
+                                    velocity_cmd['right'],
+                                    velocity_cmd['down'],
+                                    0.0
+                                )
+                                self.logger.debug(f"Sent approach velocity: forward={forward_speed:.2f} m/s")
                         
                         else:
                             # Too close - back up
                             self.logger.warning(f"Too close to target ({distance:.2f}m)! Backing up")
-                            result['velocity_command'] = {'forward': -0.3, 'right': 0, 'down': 0}
+                            velocity_cmd = {'forward': -0.3, 'right': 0, 'down': 0}
+                            result['velocity_command'] = velocity_cmd
+                            
+                            # Send backup command to MAVLink
+                            if self.telemetry and self.telemetry.is_connected:
+                                self.telemetry.send_velocity_body(-0.3, 0.0, 0.0, 0.0)
+                                self.logger.debug("Sent backup velocity: forward=-0.3 m/s")
             else:
                 # Lost target
                 self.logger.warning("Target lost during approach. Returning to search")
@@ -231,18 +279,46 @@ class AutonomousController:
             self.state = NavigationState.SEARCHING
         
         elif self.state == NavigationState.AVOIDING_OBSTACLE:
-            # Obstacle avoidance behavior
-            avoidance_command = self._calculate_avoidance_command(depth_map)
-            result['velocity_command'] = avoidance_command
+            # Use advanced obstacle avoidance system
+            avoidance_command = self.obstacle_avoider.get_avoidance_command()
+            
+            if avoidance_command['avoid']:
+                # Convert lateral command to velocity
+                lateral_speed = avoidance_command['lateral'] * self.max_lateral_speed
+                velocity_cmd = {
+                    'forward': self.max_forward_speed * 0.3,  # Slow forward during avoidance
+                    'right': lateral_speed,
+                    'down': 0
+                }
+                result['velocity_command'] = velocity_cmd
+                
+                # Send velocity command to MAVLink
+                if self.telemetry and self.telemetry.is_connected:
+                    self.telemetry.send_velocity_body(
+                        velocity_cmd['forward'],
+                        velocity_cmd['right'],
+                        velocity_cmd['down'],
+                        0.0  # No yaw rate
+                    )
+                    self.logger.debug(f"Sent avoidance velocity: forward={velocity_cmd['forward']:.2f}, right={velocity_cmd['right']:.2f}")
             
             # Check if obstacle cleared
-            if not self._check_obstacles(depth_map):
+            if not self.obstacle_avoider.should_avoid(
+                target_detection and target_detection.get('detected'),
+                target_distance
+            ):
                 self.logger.info("Obstacle cleared. Returning to search mode")
                 self.state = NavigationState.SEARCHING
         
         elif self.state == NavigationState.EMERGENCY_STOP:
             # Emergency stop - no commands
-            result['velocity_command'] = {'forward': 0, 'right': 0, 'down': 0}
+            velocity_cmd = {'forward': 0, 'right': 0, 'down': 0}
+            result['velocity_command'] = velocity_cmd
+            
+            # Send stop command to MAVLink
+            if self.telemetry and self.telemetry.is_connected:
+                self.telemetry.send_velocity_body(0.0, 0.0, 0.0, 0.0)
+                self.logger.debug("Sent emergency stop command")
         
         return result
     
@@ -391,7 +467,7 @@ class AutonomousController:
         Returns:
             Estimated distance in meters
         """
-        # MiDaS depth is relative, not metric
+        # Depth Anything V2 provides relative depth, not metric
         # This is a rough approximation - needs calibration for real distances
         # Assuming: 0.0 = 10m, 1.0 = 0.5m (inverse relationship)
         
