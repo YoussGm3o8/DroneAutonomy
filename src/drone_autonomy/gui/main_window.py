@@ -28,6 +28,8 @@ from .media_gallery import MediaGallery
 from .results_viewer import ResultsViewer
 from .telemetry_display import TelemetryDisplay
 from .drone_control_panel import DroneControlPanel
+from .avoidance_control_panel import AvoidanceControlPanel
+from .mavlink_command_panel import MAVLinkCommandPanel
 from .settings_dialog import SettingsDialog
 from .settings_manager import SettingsManager
 
@@ -44,6 +46,7 @@ except ImportError:
 # Import MAVLink telemetry
 try:
     from drone_autonomy.mavlink.telemetry import MAVLinkTelemetry
+    from drone_autonomy.navigation.mavlink_avoidance_controller import MAVLinkAvoidanceController
     MAVLINK_AVAILABLE = True
 except ImportError:
     MAVLINK_AVAILABLE = False
@@ -582,6 +585,7 @@ class MainWindow(QMainWindow):
         self.task_manager = None
         self.video_thread = VideoProcessingThread()
         self.mavlink = None  # MAVLink telemetry connection
+        self.avoidance_controller = None  # MAVLink avoidance controller
         self.connection_thread = None  # Track MAVLink connection thread
         self.settings_manager = SettingsManager()  # Persistent settings manager
         
@@ -686,10 +690,38 @@ class MainWindow(QMainWindow):
         drone_control_scroll.setWidgetResizable(True)
         drone_control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         drone_control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
+
         self.drone_control = DroneControlPanel()
         drone_control_scroll.setWidget(self.drone_control)
         task_tabs.addTab(drone_control_scroll, "🎮 Drone Controls")
+
+        # Obstacle avoidance control panel in scroll area
+        avoidance_control_scroll = QScrollArea()
+        avoidance_control_scroll.setWidgetResizable(True)
+        avoidance_control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        avoidance_control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.avoidance_control = AvoidanceControlPanel()
+        self.avoidance_control.start_requested.connect(self._on_avoidance_start)
+        self.avoidance_control.stop_requested.connect(self._on_avoidance_stop)
+        self.avoidance_control.pause_requested.connect(self._on_avoidance_pause)
+        self.avoidance_control.resume_requested.connect(self._on_avoidance_resume)
+        self.avoidance_control.manual_avoid_left_requested.connect(self._on_manual_avoid_left)
+        self.avoidance_control.manual_avoid_right_requested.connect(self._on_manual_avoid_right)
+        self.avoidance_control.manual_stop_requested.connect(self._on_manual_stop)
+
+        avoidance_control_scroll.setWidget(self.avoidance_control)
+        task_tabs.addTab(avoidance_control_scroll, "🛡️ Avoidance")
+
+        # MAVLink command panel in scroll area
+        mavlink_command_scroll = QScrollArea()
+        mavlink_command_scroll.setWidgetResizable(True)
+        mavlink_command_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        mavlink_command_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        self.mavlink_command = MAVLinkCommandPanel()
+        mavlink_command_scroll.setWidget(self.mavlink_command)
+        task_tabs.addTab(mavlink_command_scroll, "📡 MAVLink Commands")
         
         # Media gallery in scroll area
         media_gallery_scroll = QScrollArea()
@@ -1405,20 +1437,55 @@ class MainWindow(QMainWindow):
                     if success:
                         system_id = self.mavlink.connection.target_system if self.mavlink.connection else 0
                         component_id = self.mavlink.connection.target_component if self.mavlink.connection else 0
-                        
+
                         self.results_viewer.add_log(f"✓ Heartbeat received from system {system_id}, component {component_id}", "SUCCESS")
                         self.results_viewer.add_log(f"✓ Connected to drone via {connection_string}", "SUCCESS")
                         self.telemetry_display.set_connection_status("Connected")
 
                         # Surface autopilot command logs in GUI
                         self.mavlink.set_command_logger(self._log_mavlink_action)
-                        
+
                         # Provide MAVLink reference to video thread for failsafe commands
                         self.video_thread.set_mavlink(self.mavlink)
-                        
+
                         # Provide MAVLink reference to drone control panel
                         self.drone_control.set_mavlink(self.mavlink)
-                        
+
+                        # Provide MAVLink reference to MAVLink command panel
+                        self.mavlink_command.set_mavlink(self.mavlink)
+
+                        # Initialize MAVLink avoidance controller
+                        if DEPTH_AVAILABLE and self.video_thread.obstacle_avoider:
+                            try:
+                                import logging
+                                avoidance_logger = logging.getLogger('mavlink_avoidance')
+                                avoidance_config = {
+                                    'max_velocity': 2.0,
+                                    'avoidance_velocity': 1.0,
+                                    'emergency_distance': 1.0,
+                                    'update_rate': 10,
+                                    'lateral_gain': 1.5,
+                                    'enable_emergency_stop': True,
+                                    'min_altitude': 1.0,
+                                    'max_altitude': 50.0
+                                }
+
+                                self.avoidance_controller = MAVLinkAvoidanceController(
+                                    self.mavlink,
+                                    self.video_thread.obstacle_avoider,
+                                    avoidance_config,
+                                    avoidance_logger
+                                )
+
+                                # Provide controller reference to avoidance control panel
+                                self.avoidance_control.set_avoidance_controller(self.avoidance_controller)
+
+                                self.results_viewer.add_log("✓ MAVLink avoidance controller initialized", "SUCCESS")
+                            except Exception as e:
+                                self.results_viewer.add_log(f"⚠ Failed to initialize avoidance controller: {e}", "WARNING")
+                                import traceback
+                                traceback.print_exc()
+
                         # Start telemetry polling timer
                         self.mavlink_timer.start()
                         self.results_viewer.add_log("✓ Telemetry polling started (10Hz)", "INFO")
@@ -1699,23 +1766,23 @@ class MainWindow(QMainWindow):
         try:
             if not hasattr(self, 'current_task1') or not self.current_task1:
                 return
-            
+
             # Get current frame and depth from video thread
             frame = getattr(self.video_thread, 'last_frame', None)
             depth_map = getattr(self.video_thread, 'last_depth', None)
             detections = getattr(self.video_thread, 'last_detections', [])
             target_detection = getattr(self.video_thread, 'last_target', None)
-            
+
             if frame is not None:
                 # Update task
                 continue_task = self.current_task1.update(
                     frame, depth_map, detections, target_detection
                 )
-                
+
                 # Update GUI with task status
                 mission_state = self.current_task1.get_mission_state()
                 self.task1_panel.update_mission_state(mission_state)
-                
+
                 # Update counters
                 self.task1_panel.update_lap_count(
                     self.current_task1.current_lap,
@@ -1724,23 +1791,81 @@ class MainWindow(QMainWindow):
                 self.task1_panel.update_target_count(
                     self.current_task1.get_target_count()
                 )
-                
+
                 equipment_status = self.current_task1.get_equipment_status()
                 delivered = sum(1 for d in equipment_status.values() if d)
                 total = len(equipment_status)
                 self.task1_panel.update_equipment_status(delivered, total)
-                
+
                 # Update scores
                 self.task1_panel.update_scores(self.current_task1.get_scores())
-                
+
                 # Check if task completed
                 if not continue_task:
                     self._on_task1_stop()
-                    
+
         except Exception as e:
             print(f"Error updating Task 1: {e}")
             import traceback
             traceback.print_exc()
+
+    # ===== Obstacle Avoidance Control Handlers =====
+
+    def _on_avoidance_start(self):
+        """Handle avoidance start request"""
+        if not self.avoidance_controller:
+            QMessageBox.warning(self, "Not Ready", "Avoidance controller not initialized.\n\nConnect to drone first.")
+            return
+
+        try:
+            if self.avoidance_controller.start():
+                self.results_viewer.add_log("✓ Obstacle avoidance started", "SUCCESS")
+                self.statusBar().showMessage("Obstacle avoidance ACTIVE", 5000)
+            else:
+                self.results_viewer.add_log("✗ Failed to start avoidance - check connection and mode", "ERROR")
+                QMessageBox.warning(self, "Start Failed", "Failed to start avoidance controller.\n\nEnsure drone is connected and in GUIDED mode.")
+        except Exception as e:
+            self.results_viewer.add_log(f"✗ Avoidance start error: {e}", "ERROR")
+            QMessageBox.critical(self, "Error", f"Error starting avoidance:\n{e}")
+
+    def _on_avoidance_stop(self):
+        """Handle avoidance stop request"""
+        if self.avoidance_controller:
+            self.avoidance_controller.stop()
+            self.results_viewer.add_log("Obstacle avoidance stopped", "INFO")
+            self.statusBar().showMessage("Obstacle avoidance stopped", 3000)
+
+    def _on_avoidance_pause(self):
+        """Handle avoidance pause request"""
+        if self.avoidance_controller:
+            self.avoidance_controller.pause()
+            self.results_viewer.add_log("Obstacle avoidance paused", "INFO")
+            self.statusBar().showMessage("Obstacle avoidance paused", 3000)
+
+    def _on_avoidance_resume(self):
+        """Handle avoidance resume request"""
+        if self.avoidance_controller:
+            self.avoidance_controller.resume()
+            self.results_viewer.add_log("Obstacle avoidance resumed", "SUCCESS")
+            self.statusBar().showMessage("Obstacle avoidance resumed", 3000)
+
+    def _on_manual_avoid_left(self, intensity: float):
+        """Handle manual avoid left request"""
+        if self.avoidance_controller:
+            self.avoidance_controller.manual_avoid_left(intensity)
+            self.results_viewer.add_log(f"Manual avoidance LEFT (intensity: {intensity:.1f})", "INFO")
+
+    def _on_manual_avoid_right(self, intensity: float):
+        """Handle manual avoid right request"""
+        if self.avoidance_controller:
+            self.avoidance_controller.manual_avoid_right(intensity)
+            self.results_viewer.add_log(f"Manual avoidance RIGHT (intensity: {intensity:.1f})", "INFO")
+
+    def _on_manual_stop(self):
+        """Handle manual stop request"""
+        if self.avoidance_controller:
+            self.avoidance_controller.manual_stop()
+            self.results_viewer.add_log("Manual STOP command", "INFO")
         
     def closeEvent(self, event):
         """Handle window close event"""

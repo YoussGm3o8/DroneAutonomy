@@ -19,6 +19,9 @@ from .results_viewer import ResultsViewer
 from .telemetry_display import TelemetryDisplay
 from .settings_dialog import SettingsDialog
 from .task1_fire_recon_panel import Task1FireReconPanel
+from .drone_control_panel import DroneControlPanel
+from .avoidance_control_panel import AvoidanceControlPanel
+from .mavlink_command_panel import MAVLinkCommandPanel
 
 __all__ = [
     'MainWindow',
@@ -29,4 +32,7 @@ __all__ = [
     'TelemetryDisplay',
     'SettingsDialog',
     'Task1FireReconPanel',
+    'DroneControlPanel',
+    'AvoidanceControlPanel',
+    'MAVLinkCommandPanel',
 ]
