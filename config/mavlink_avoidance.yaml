@@ -20,13 +20,17 @@ video:
   codec: 'h265'
 
 # Depth Estimation Settings
+# OPTIMIZED: TensorRT FP16 for real-time obstacle avoidance
 depth:
   enabled: true
-  model: 'depth_anything_v2_vits'  # Fast model for real-time avoidance
+  model: 'depth_anything_v2_vits_tensorrt_fp16'  # TensorRT FP16 optimized
   device: 'cuda'
-  scale_output: 0.5  # Downsample for speed
+  engine_path: 'models/depth_anything_v2_vits_fp16.engine'
+  output_width: 1920  # Upsample to full resolution
+  output_height: 1080
   metric_calibration: true
   use_altitude: true
+  # Fixed 518×518 model input, expect 18-24ms/frame on RTX 3060 Mobile
 
 # Obstacle Avoidance Settings
 obstacle_avoidance:

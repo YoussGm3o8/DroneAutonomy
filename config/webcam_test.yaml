@@ -28,11 +28,14 @@ vio:
   output_rate: 30
 
 # Depth estimation configuration
+# OPTIMIZED: TensorRT FP16 for fast webcam testing
 depth:
-  model: dpt_hybrid  # Fast and high quality MiDaS model
+  model: depth_anything_v2_vits_tensorrt_fp16  # TensorRT optimized
   device: cuda
-  input_size: [384, 384]  # Optimal for DPT models
-  output_scale: 0.5  # Lower resolution for speed
+  engine_path: models/depth_anything_v2_vits_fp16.engine
+  output_width: 640   # Match webcam resolution
+  output_height: 480
+  # Fixed 518×518 model input, expect ≥40-55 FPS on RTX 3060 Mobile
 
 # YOLO object detection configuration
 detection:

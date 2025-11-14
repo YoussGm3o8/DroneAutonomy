@@ -66,6 +66,20 @@ Modern PyQt6-based graphical interface for drone computer vision and autonomous 
 - Flight mode display
 - Automatic unit formatting (degrees, m/s, meters, volts, etc.)
 
+### 🎮 Drone Control Panel
+- **MAVLink Controls**:
+  - Arm/Disarm motors with safety confirmations
+  - Flight mode selection (STABILIZE, ALT_HOLD, LOITER, GUIDED, AUTO, RTL, LAND, etc.)
+  - Emergency stop (RTL) with critical confirmation
+  - Connection status display
+- **Obstacle Avoidance Controls** 🆕:
+  - Enable/disable toggle with confirmation dialog
+  - Real-time status indicator
+  - Requirements checklist (MAVLink connected, GUIDED mode, depth active)
+  - Automatic MAVLink command execution for avoidance maneuvers
+  - Emergency stop on critical obstacles
+  - Visual feedback on avoidance state
+
 ## Installation
 
 ### Prerequisites
@@ -139,6 +153,13 @@ python launch_gui.py --demo-mode
    - Right panel shows real-time drone data
    - GPS, attitude, velocity, battery
    - Connection status and flight mode
+
+7. **Control Drone** 🆕
+   - Go to "🎮 Drone Controls" tab
+   - Arm/disarm motors when ready
+   - Change flight modes as needed
+   - Enable obstacle avoidance for autonomous flight
+   - Monitor avoidance status and obstacle detection
 
 ## Keyboard Shortcuts
 

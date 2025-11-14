@@ -30,18 +30,18 @@ vio:
   output_rate: 30
 
 # Depth estimation configuration
+# OPTIMIZED: Depth Anything V2 Small with TensorRT FP16
 depth:
-  model: dpt_hybrid  # Depth model selection - RECOMMENDED: dpt_hybrid for best balance
-  # Options: 
-  #   - dpt_hybrid (MiDaS DPT_Hybrid - RECOMMENDED: Fast 140ms with high quality)
-  #   - dpt_large (MiDaS DPT_Large - Highest quality 174ms)
-  #   - midas_small (MiDaS Small - Lightweight 246ms for memory-constrained devices)
-  #   - depth_anything_v2_vits (Depth Anything V2 Small - balanced speed/quality)
-  #   - depth_anything_v2_vitb (Depth Anything V2 Base - better quality, slower)
-  #   - depth_anything_v2_vitl (Depth Anything V2 Large - best quality, slowest)
-  device: cuda  # Options: cuda, cpu
-  input_size: [640, 480]  # Depth processing resolution (width, height)
-  output_scale: 0.5  # Scale down output if needed (0.5 = 320x240 final output)
+  model: depth_anything_v2_vits_tensorrt_fp16  # Fixed optimized model
+  device: cuda  # TensorRT requires CUDA
+  engine_path: models/depth_anything_v2_vits_fp16.engine  # TensorRT engine file
+  
+  # Model processes at fixed 518×518 (Depth Anything V2 default)
+  # Output is upsampled to target resolution
+  output_width: 1920   # Target width for upsampling (1080p)
+  output_height: 1080  # Target height for upsampling (1080p)
+  
+  # Expected performance on RTX 3060 Mobile: 18-24ms/frame (≥40-55 FPS)
   
   # Metric depth calibration (converts relative depth to actual meters)
   use_metric_calibration: true  # Enable altitude-based depth calibration

@@ -5,12 +5,13 @@ Provides:
 - Arm/Disarm buttons
 - Flight mode selection dropdown
 - Emergency stop button
+- Obstacle avoidance control toggle
 - Current status display
 """
 
 from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QGroupBox, QPushButton, QComboBox, QMessageBox)
+                             QGroupBox, QPushButton, QComboBox, QMessageBox, QCheckBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 
@@ -25,6 +26,7 @@ class DroneControlPanel(QWidget):
     disarm_requested = pyqtSignal()
     mode_change_requested = pyqtSignal(str)  # mode name
     emergency_stop_requested = pyqtSignal()
+    obstacle_avoidance_toggled = pyqtSignal(bool)  # enabled state
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -225,6 +227,54 @@ class DroneControlPanel(QWidget):
         emergency_group.setLayout(emergency_layout)
         layout.addWidget(emergency_group)
         
+        # Obstacle Avoidance controls
+        avoidance_group = QGroupBox("🛡️ Obstacle Avoidance")
+        avoidance_layout = QVBoxLayout()
+        
+        avoidance_info = QLabel(
+            "Real-time autonomous obstacle detection and avoidance using depth estimation."
+        )
+        avoidance_info.setStyleSheet("font-size: 9pt; color: #555; padding: 5px;")
+        avoidance_info.setWordWrap(True)
+        avoidance_layout.addWidget(avoidance_info)
+        
+        # Enable/Disable checkbox
+        self.avoidance_checkbox = QCheckBox("Enable Obstacle Avoidance")
+        self.avoidance_checkbox.setStyleSheet("""
+            QCheckBox {
+                font-size: 11pt;
+                font-weight: bold;
+                padding: 5px;
+            }
+            QCheckBox::indicator {
+                width: 20px;
+                height: 20px;
+            }
+        """)
+        self.avoidance_checkbox.stateChanged.connect(self._on_avoidance_toggled)
+        avoidance_layout.addWidget(self.avoidance_checkbox)
+        
+        # Status label
+        self.avoidance_status_label = QLabel("Status: Disabled")
+        self.avoidance_status_label.setStyleSheet(
+            "font-weight: bold; color: #888; padding: 5px;"
+        )
+        avoidance_layout.addWidget(self.avoidance_status_label)
+        
+        # Requirements info
+        requirements_label = QLabel(
+            "<b>Requirements:</b><br>"
+            "• MAVLink connected<br>"
+            "• Flight mode: GUIDED<br>"
+            "• Depth estimation active"
+        )
+        requirements_label.setStyleSheet("font-size: 9pt; color: #666; padding: 5px;")
+        requirements_label.setWordWrap(True)
+        avoidance_layout.addWidget(requirements_label)
+        
+        avoidance_group.setLayout(avoidance_layout)
+        layout.addWidget(avoidance_group)
+        
         # Connection status
         self.connection_label = QLabel("⚠ MAVLink not connected")
         self.connection_label.setStyleSheet(
@@ -307,6 +357,42 @@ class DroneControlPanel(QWidget):
         self.set_mode_button.setEnabled(enabled)
         self.mode_combo.setEnabled(enabled)
         self.emergency_stop_button.setEnabled(enabled)
+        self.avoidance_checkbox.setEnabled(enabled)
+    
+    def _on_avoidance_toggled(self, state):
+        """Handle obstacle avoidance toggle"""
+        enabled = (state == Qt.CheckState.Checked.value)
+        
+        if enabled:
+            # Show confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Enable Obstacle Avoidance",
+                "Enable real-time obstacle avoidance?\n\n"
+                "⚠ Ensure:\n"
+                "• Drone is in GUIDED mode\n"
+                "• Depth estimation is working\n"
+                "• You are monitoring the system\n\n"
+                "The system will automatically avoid obstacles by sending velocity commands.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.avoidance_status_label.setText("Status: Active")
+                self.avoidance_status_label.setStyleSheet(
+                    "font-weight: bold; color: green; padding: 5px;"
+                )
+                self.obstacle_avoidance_toggled.emit(True)
+            else:
+                # User cancelled, uncheck the box
+                self.avoidance_checkbox.setChecked(False)
+        else:
+            self.avoidance_status_label.setText("Status: Disabled")
+            self.avoidance_status_label.setStyleSheet(
+                "font-weight: bold; color: #888; padding: 5px;"
+            )
+            self.obstacle_avoidance_toggled.emit(False)
         
     def _on_arm_clicked(self):
         """Handle arm button click"""

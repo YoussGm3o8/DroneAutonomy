@@ -1,12 +1,9 @@
 {
   "depth": {
-    "model": "dpt_hybrid",
+    "model": "vits",
     "device": "cuda",
-    "input_size": [
-      640,
-      480
-    ],
-    "output_scale": 0.5
+    "output_width": 518,
+    "output_height": 518
   },
   "detection": {
     "confidence_threshold": 0.5,
@@ -19,7 +16,7 @@
     "enable_detection": true
   },
   "display": {
-    "show_fps": false,
+    "show_fps": true,
     "default_view": "Full Overlay",
     "depth_opacity": 50
   },
@@ -31,7 +28,7 @@
   },
   "splitters": {
     "main": "000000ff00000001000000020000044c000001f400ffffffff010000000100",
-    "left": "000000ff0000000100000002000001eb000000dc00ffffffff010000000200",
+    "left": "000000ff0000000100000002000000df000001e800ffffffff010000000200",
     "right": "000000ff0000000100000002000002580000019000ffffffff010000000200"
   }
 }

@@ -11,6 +11,7 @@ Integrates all components:
 """
 
 import sys
+import os
 import cv2
 import numpy as np
 import time
@@ -22,8 +23,6 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 from PyQt6.QtGui import QAction, QIcon, QKeySequence
 
 from .video_widget import VideoWidget
-from .task_control import TaskControlPanel
-from .task1_fire_recon_panel import Task1FireReconPanel
 from .media_gallery import MediaGallery
 from .results_viewer import ResultsViewer
 from .telemetry_display import TelemetryDisplay
@@ -41,13 +40,14 @@ except ImportError:
     DEPTH_AVAILABLE = False
     print("⚠ Warning: Depth/Detection/Navigation modules not available")
 
-# Import MAVLink telemetry
+# Import MAVLink telemetry and avoidance controller
 try:
     from drone_autonomy.mavlink.telemetry import MAVLinkTelemetry
+    from drone_autonomy.navigation.mavlink_avoidance_controller import MAVLinkAvoidanceController
     MAVLINK_AVAILABLE = True
 except ImportError:
     MAVLINK_AVAILABLE = False
-    print("⚠ Warning: MAVLink telemetry not available")
+    print("⚠ Warning: MAVLink telemetry/avoidance not available")
 
 
 class VideoProcessingThread(QThread):
@@ -60,14 +60,22 @@ class VideoProcessingThread(QThread):
     
     def __init__(self):
         super().__init__()
+        
         self.running = False
         self.pipeline = None
         self.video_source = None
         self.capture = None
         self.mavlink = None  # Reference to MAVLink telemetry for failsafe commands
         
+        # MAVLink Avoidance Controller
+        self.mavlink_avoidance_controller = None  # Will be initialized when MAVLink connects
+        
         # Obstacle avoidance control
         self.obstacle_avoidance_enabled = False  # User must enable via GUI
+        
+        # Performance settings
+        self.enable_depth = True  # Enable depth estimation
+        self.enable_detection = True  # Enable object detection
         
         # Video failsafe state
         self.failsafe_active = False
@@ -91,12 +99,14 @@ class VideoProcessingThread(QThread):
                 import torch
                 device = 'cuda' if torch.cuda.is_available() else 'cpu'
                 
-                # Configure depth estimator (matching default_config.yaml)
+                # Configure depth estimator (use saved settings or defaults)
+                # Settings will be provided by MainWindow after initialization
                 depth_config = {
-                    'model': 'depth_anything_v2_vits',  # Lightest/fastest
+                    'model': 'depth_anything_v2_vits_tensorrt_fp16',
                     'device': device,
-                    'input_size': [640, 480],  # Process at 480p
-                    'output_scale': 0.5  # Scale down output to 320x240
+                    'output_width': 518,  # Native resolution
+                    'output_height': 518,
+                    'use_metric_calibration': False
                 }
                 self.depth_estimator = DepthEstimator(depth_config)
                 if self.depth_estimator.load_model():
@@ -144,6 +154,8 @@ class VideoProcessingThread(QThread):
                 avoider_logger = logging.getLogger('obstacle_avoidance')
                 self.obstacle_avoider = ObstacleAvoider(avoider_config, avoider_logger)
                 print(f"✓ Obstacle avoider initialized")
+                # Feature starts disabled until explicitly enabled via GUI toggle
+                self.obstacle_avoider.set_feature_enabled(False)
                     
             except Exception as e:
                 print(f"⚠ Warning: Could not initialize CV modules: {e}")
@@ -160,10 +172,65 @@ class VideoProcessingThread(QThread):
     def set_mavlink(self, mavlink):
         """Set MAVLink telemetry reference for failsafe commands"""
         self.mavlink = mavlink
+        
+        # Initialize MAVLink Avoidance Controller if all components are ready
+        if (mavlink and self.obstacle_avoider and 
+            MAVLINK_AVAILABLE and hasattr(sys.modules[__name__], 'MAVLinkAvoidanceController')):
+            try:
+                import logging
+                # Create avoidance controller config
+                avoidance_config = {
+                    'max_velocity': 2.0,  # m/s
+                    'avoidance_velocity': 1.0,  # m/s
+                    'emergency_distance': 1.0,  # m
+                    'update_rate': 10,  # Hz
+                    'lateral_gain': 1.5,
+                    'enable_emergency_stop': True,
+                    'min_altitude': 1.0,  # m
+                    'max_altitude': 50.0  # m
+                }
+                
+                avoider_logger = logging.getLogger('mavlink_avoidance_controller')
+                self.mavlink_avoidance_controller = MAVLinkAvoidanceController(
+                    mavlink, 
+                    self.obstacle_avoider, 
+                    avoidance_config,
+                    avoider_logger
+                )
+                print("✓ MAVLink Avoidance Controller initialized")
+            except Exception as e:
+                print(f"⚠ Warning: Could not initialize MAVLink Avoidance Controller: {e}")
+                import traceback
+                traceback.print_exc()
+                self.mavlink_avoidance_controller = None
+    
+    def set_performance_settings(self, enable_depth: bool, enable_detection: bool):
+        """Update performance settings for depth estimation and detection"""
+        self.enable_depth = enable_depth
+        self.enable_detection = enable_detection
+        print(f"Performance settings: depth={'ON' if enable_depth else 'OFF'}, detection={'ON' if enable_detection else 'OFF'}")
     
     def set_obstacle_avoidance_enabled(self, enabled: bool):
         """Enable or disable obstacle avoidance control"""
         self.obstacle_avoidance_enabled = enabled
+        if self.obstacle_avoider:
+            self.obstacle_avoider.set_feature_enabled(enabled)
+        
+        # Start or stop the MAVLink avoidance controller
+        if self.mavlink_avoidance_controller:
+            if enabled:
+                if self.mavlink and self.mavlink.is_connected:
+                    success = self.mavlink_avoidance_controller.start()
+                    if success:
+                        print("✓ MAVLink Avoidance Controller started")
+                    else:
+                        print("⚠ Failed to start MAVLink Avoidance Controller")
+                else:
+                    print("⚠ Cannot start avoidance: MAVLink not connected")
+            else:
+                self.mavlink_avoidance_controller.stop()
+                print("✗ MAVLink Avoidance Controller stopped")
+        
         print(f"{'✓ Enabled' if enabled else '✗ Disabled'} obstacle avoidance active control")
         
     def set_video_source(self, source_type: str, source_path: str = "", camera_idx: int = 0):
@@ -310,58 +377,55 @@ class VideoProcessingThread(QThread):
                         # Run obstacle detection if depth map available
                         if self.obstacle_avoider and depth_map is not None and depth_map.size > 0:
                             try:
-                                # Detect obstacles in depth map
-                                obstacles = self.obstacle_avoider.detect_obstacles(depth_map)
-                                
-                                # Generate path candidates if obstacles found
-                                if obstacles:
-                                    paths = self.obstacle_avoider.generate_path_candidates(
-                                        frame_shape=(h, w),
-                                        current_target=(w//2, h - 20)  # Default: center bottom
-                                    )
-                                
-                                # Get avoidance command and send to drone if needed
-                                # Only send commands if:
-                                # 1. Obstacle avoidance is enabled by user
-                                # 2. MAVLink is connected
-                                # 3. Drone is in GUIDED mode (not AUTO waypoint following)
-                                if (self.obstacle_avoidance_enabled and 
+                                # Use MAVLink Avoidance Controller if available and enabled
+                                if (self.mavlink_avoidance_controller and 
+                                    self.obstacle_avoidance_enabled and
                                     self.mavlink and self.mavlink.is_connected):
                                     
-                                    # Check if in GUIDED mode (allow manual/autonomous control)
-                                    # Don't interfere with AUTO mode (waypoint missions)
-                                    current_mode = self.mavlink.flight_mode if self.mavlink.flight_mode else ""
+                                    # Update MAVLink avoidance controller with depth map
+                                    # The controller handles obstacle detection, path planning,
+                                    # and MAVLink command execution automatically
+                                    avoidance_status = self.mavlink_avoidance_controller.update(
+                                        depth_map=depth_map,
+                                        target_position=(w//2, h - 20)  # Default: center bottom
+                                    )
                                     
-                                    if current_mode in ["GUIDED", "GUIDED_NOGPS", "POSHOLD", "LOITER"]:
-                                        avoidance_cmd = self.obstacle_avoider.get_avoidance_command()
+                                    # Log significant events
+                                    if avoidance_status.get('avoiding', False):
+                                        num_obstacles = avoidance_status.get('num_obstacles', 0)
+                                        print(f"🛡️ Avoiding {num_obstacles} obstacle(s)")
+                                    
+                                    if avoidance_status.get('emergency', False):
+                                        obstacle_dist = avoidance_status.get('obstacle_distance', 0)
+                                        print(f"🚨 EMERGENCY STOP: Critical obstacle at {obstacle_dist:.2f}m")
                                         
-                                        if avoidance_cmd.get('avoid', False):
-                                            # Obstacle detected - send avoidance velocity command
-                                            lateral = avoidance_cmd.get('lateral', 0.0)
-                                            
-                                            # Convert lateral command to body-frame velocity
-                                            # Forward velocity (m/s) - maintain forward motion
-                                            vx = 1.0
-                                            # Lateral velocity (m/s) - steer to avoid obstacle
-                                            vy = lateral * 0.5  # Scale to reasonable lateral speed
-                                            # Vertical velocity (m/s) - maintain altitude
-                                            vz = 0.0
-                                            
-                                            # Send velocity command in body frame
-                                            self.mavlink.send_velocity_body(vx, vy, vz)
+                                else:
+                                    # Fallback: Basic obstacle detection for visualization only
+                                    # (no MAVLink commands sent)
+                                    obstacles = self.obstacle_avoider.detect_obstacles(depth_map)
+                                    
+                                    # Generate path candidates for visualization
+                                    if obstacles:
+                                        paths = self.obstacle_avoider.generate_path_candidates(
+                                            frame_shape=(h, w),
+                                            current_target=(w//2, h - 20)  # Default: center bottom
+                                        )
                                         
                             except Exception as e:
                                 print(f"Obstacle avoidance error: {e}")
+                                import traceback
+                                traceback.print_exc()
                         
-                        # Run object detection
-                        if self.detector:
+                        # Run object detection (only if enabled in settings)
+                        detections = []
+                        if self.enable_detection and self.detector:
                             try:
-                                detections, _ = self.detector.detect(frame)  # Returns (detections, inference_time)
+                                detections = self.detector.detect(frame)
+                                if detections is None:
+                                    detections = []
                             except Exception as e:
                                 print(f"Detection error: {e}")
                                 detections = []
-                        else:
-                            detections = []
                         
                         telemetry = {}
                         state_info = ""
@@ -387,7 +451,8 @@ class VideoProcessingThread(QThread):
                 print(error_msg)
                 self.error_occurred.emit(error_msg)
                 
-            self.msleep(30)  # ~30 FPS
+            # No sleep - run at maximum speed for depth estimation
+            # The depth estimator inference time (23-38ms) naturally limits FPS to 25-42 fps
     
     def start_recording(self, filename: str, frame_size: tuple, fps: float = 30.0):
         """Start video recording"""
@@ -614,6 +679,58 @@ class MainWindow(QMainWindow):
             window_settings.get('height', 900)
         )
         
+        # Apply saved depth settings to video thread
+        self._apply_saved_depth_settings()
+        
+        # Apply saved performance settings
+        self._apply_saved_performance_settings()
+        
+    def _apply_saved_depth_settings(self):
+        """Apply saved depth estimator settings after initialization"""
+        if 'depth' in self.saved_settings and DEPTH_AVAILABLE:
+            depth_config = self.saved_settings['depth']
+            
+            # Check if we need to reload with different model
+            if self.video_thread.depth_estimator:
+                saved_model = depth_config.get('model', 'depth_anything_v2_vits_tensorrt_fp16')
+                current_model = self.video_thread.depth_estimator.model_type
+                
+                # Extract model type from saved model name
+                saved_model_type = 'vitb' if 'vitb' in saved_model else 'vits'
+                
+                if current_model != saved_model_type:
+                    # Need to reload with different model
+                    print(f"Loading saved depth model: {saved_model}")
+                    import torch
+                    new_config = {
+                        'model': saved_model,
+                        'device': depth_config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'),
+                        'output_width': depth_config.get('output_width', 518),
+                        'output_height': depth_config.get('output_height', 518),
+                        'use_metric_calibration': False
+                    }
+                    new_estimator = DepthEstimator(new_config)
+                    if new_estimator.load_model():
+                        self.video_thread.depth_estimator = new_estimator
+                        print(f"✓ Depth model loaded from settings: {saved_model_type}")
+                else:
+                    # Same model, just update output resolution
+                    output_width = depth_config.get('output_width', 518)
+                    output_height = depth_config.get('output_height', 518)
+                    if hasattr(self.video_thread.depth_estimator.model, 'output_width'):
+                        self.video_thread.depth_estimator.model.output_width = output_width
+                        self.video_thread.depth_estimator.model.output_height = output_height
+                        print(f"✓ Depth output resolution from settings: {output_width}×{output_height}")
+    
+    def _apply_saved_performance_settings(self):
+        """Apply saved performance settings to video thread"""
+        if 'performance' in self.saved_settings:
+            perf_config = self.saved_settings['performance']
+            enable_depth = perf_config.get('enable_depth', True)
+            enable_detection = perf_config.get('enable_detection', True)
+            self.video_thread.set_performance_settings(enable_depth, enable_detection)
+            print(f"✓ Applied performance settings: depth={enable_depth}, detection={enable_detection}")
+        
     def init_ui(self):
         """Initialize UI components with resizable and collapsible panels"""
         from PyQt6.QtWidgets import QScrollArea
@@ -648,38 +765,9 @@ class MainWindow(QMainWindow):
         
         left_splitter.addWidget(self.video_widget)
         
-        # Task control tabs with scroll area
+        # Control tabs with scroll area
         task_tabs = QTabWidget()
         task_tabs.setMinimumHeight(150)  # Minimum height when resized
-        
-        # Task 1: Fire Reconnaissance panel in scroll area
-        task1_scroll = QScrollArea()
-        task1_scroll.setWidgetResizable(True)
-        task1_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        task1_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
-        self.task1_panel = Task1FireReconPanel()
-        self.task1_panel.mission_start_requested.connect(self._on_task1_start)
-        self.task1_panel.mission_stop_requested.connect(self._on_task1_stop)
-        self.task1_panel.config_changed.connect(self._on_task1_config_changed)
-        
-        task1_scroll.setWidget(self.task1_panel)
-        task_tabs.addTab(task1_scroll, "🔥 Task 1: Fire Recon")
-        
-        # Task control panel in scroll area
-        task_control_scroll = QScrollArea()
-        task_control_scroll.setWidgetResizable(True)
-        task_control_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        task_control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        
-        self.task_control = TaskControlPanel()
-        self.task_control.task_start_requested.connect(self._on_task_start)
-        self.task_control.task_stop_requested.connect(self._on_task_stop)
-        self.task_control.task_pause_requested.connect(self._on_task_pause)
-        self.task_control.task_resume_requested.connect(self._on_task_resume)
-        
-        task_control_scroll.setWidget(self.task_control)
-        task_tabs.addTab(task_control_scroll, "⚙️ General Tasks")
         
         # Drone control panel in scroll area
         drone_control_scroll = QScrollArea()
@@ -688,6 +776,7 @@ class MainWindow(QMainWindow):
         drone_control_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         
         self.drone_control = DroneControlPanel()
+        self.drone_control.obstacle_avoidance_toggled.connect(self._on_obstacle_avoidance_toggled)
         drone_control_scroll.setWidget(self.drone_control)
         task_tabs.addTab(drone_control_scroll, "🎮 Drone Controls")
         
@@ -1087,30 +1176,21 @@ class MainWindow(QMainWindow):
         if self.results_viewer:
             self.results_viewer.add_log(f"[MAVLINK] {message}", level)
         
-    def _on_task_start(self, task_name: str, config: Dict[str, Any]):
-        """Handle task start request"""
-        self.results_viewer.add_log(f"Starting task: {task_name}", "INFO")
-        self.status_label.setText(f"Running: {task_name}")
+
+    
+    def _on_obstacle_avoidance_toggled(self, enabled: bool):
+        """Handle obstacle avoidance toggle from drone control panel"""
+        # Sync with menu action
+        self.obstacle_avoidance_action.setChecked(enabled)
         
-        # TODO: Initialize and start task with pipeline
-        # Example:
-        # self.task_manager.start_task(task_name, config)
-        
-    def _on_task_stop(self):
-        """Handle task stop request"""
-        self.results_viewer.add_log("Task stopped by user", "WARNING")
-        self.status_label.setText("Task stopped")
-        
-        # TODO: Stop current task
-        # self.task_manager.stop_current_task()
-        
-    def _on_task_pause(self):
-        """Handle task pause request"""
-        self.results_viewer.add_log("Task paused", "INFO")
-        
-    def _on_task_resume(self):
-        """Handle task resume request"""
-        self.results_viewer.add_log("Task resumed", "INFO")
+        if enabled:
+            self.results_viewer.add_log("🛡️ Obstacle avoidance ENABLED", "SUCCESS")
+            self.video_thread.set_obstacle_avoidance_enabled(True)
+            self.statusBar().showMessage("🛡️ Obstacle Avoidance: ACTIVE", 5000)
+        else:
+            self.results_viewer.add_log("🛡️ Obstacle avoidance DISABLED", "WARNING")
+            self.video_thread.set_obstacle_avoidance_enabled(False)
+            self.statusBar().showMessage("Obstacle Avoidance: INACTIVE", 5000)
         
     def _on_video_play(self, file_path: str):
         """Handle video playback request"""
@@ -1454,7 +1534,34 @@ class MainWindow(QMainWindow):
         )
         if file_path:
             self.results_viewer.add_log(f"Loading configuration: {file_path}", "INFO")
-            # TODO: Load configuration
+            try:
+                import yaml
+                with open(file_path, 'r') as f:
+                    config = yaml.safe_load(f)
+                
+                # Apply configuration settings
+                if 'depth' in config:
+                    self.saved_settings['depth'].update(config['depth'])
+                if 'detection' in config and 'target_detection' in config:
+                    # Merge detection settings
+                    if 'detection' not in self.saved_settings:
+                        self.saved_settings['detection'] = {}
+                    self.saved_settings['detection'].update({
+                        'confidence_threshold': config.get('target_detection', {}).get('confidence_threshold', 0.5),
+                        'nms_threshold': 0.4,
+                        'imgsz': 640
+                    })
+                if 'performance' in config:
+                    self.saved_settings['performance'].update(config['performance'])
+                
+                # Apply the loaded settings
+                self._apply_new_settings(self.saved_settings)
+                self.results_viewer.add_log(f"✓ Configuration loaded successfully", "SUCCESS")
+                self.statusBar().showMessage(f"Configuration loaded: {os.path.basename(file_path)}", 5000)
+                
+            except Exception as e:
+                self.results_viewer.add_log(f"✗ Failed to load configuration: {e}", "ERROR")
+                QMessageBox.warning(self, "Configuration Error", f"Failed to load configuration:\n{e}")
             
     def _save_configuration(self):
         """Save configuration file"""
@@ -1463,7 +1570,38 @@ class MainWindow(QMainWindow):
         )
         if file_path:
             self.results_viewer.add_log(f"Saving configuration: {file_path}", "INFO")
-            # TODO: Save configuration
+            try:
+                import yaml
+                
+                # Build configuration structure matching default_config.yaml format
+                config = {
+                    'depth': self.saved_settings.get('depth', {}),
+                    'target_detection': {
+                        'confidence_threshold': self.saved_settings.get('detection', {}).get('confidence_threshold', 0.5),
+                        'hsv_lower': [0, 100, 100],
+                        'hsv_upper': [10, 255, 255],
+                        'min_radius': 10,
+                        'max_radius': 200,
+                        'circle_threshold': 0.7,
+                        'downscale_factor': 2
+                    },
+                    'performance': self.saved_settings.get('performance', {}),
+                    'display': self.saved_settings.get('display', {})
+                }
+                
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                
+                # Save to YAML file
+                with open(file_path, 'w') as f:
+                    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+                
+                self.results_viewer.add_log(f"✓ Configuration saved successfully", "SUCCESS")
+                self.statusBar().showMessage(f"Configuration saved: {os.path.basename(file_path)}", 5000)
+                
+            except Exception as e:
+                self.results_viewer.add_log(f"✗ Failed to save configuration: {e}", "ERROR")
+                QMessageBox.warning(self, "Save Error", f"Failed to save configuration:\n{e}")
             
     def _export_results(self):
         """Export task results"""
@@ -1472,7 +1610,45 @@ class MainWindow(QMainWindow):
         )
         if file_path:
             self.results_viewer.add_log(f"Exporting results: {file_path}", "INFO")
-            # TODO: Export results to JSON
+            try:
+                import json
+                from datetime import datetime
+                
+                # Collect results data
+                results = {
+                    'export_time': datetime.now().isoformat(),
+                    'session_info': {
+                        'video_source': self.video_thread.original_video_source_type or 'None',
+                        'depth_enabled': self.video_thread.enable_depth,
+                        'detection_enabled': self.video_thread.enable_detection,
+                        'obstacle_avoidance_enabled': self.video_thread.obstacle_avoidance_enabled
+                    },
+                    'configuration': self.saved_settings,
+                    'telemetry': {},
+                    'logs': []
+                }
+                
+                # Add current telemetry if available
+                if self.mavlink and self.mavlink.is_connected:
+                    results['telemetry'] = self.mavlink.get_flattened_telemetry()
+                
+                # Add logs from results viewer if accessible
+                if hasattr(self.results_viewer, 'get_all_logs'):
+                    results['logs'] = self.results_viewer.get_all_logs()
+                
+                # Ensure directory exists
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                
+                # Save to JSON file
+                with open(file_path, 'w') as f:
+                    json.dump(results, f, indent=2, default=str)
+                
+                self.results_viewer.add_log(f"✓ Results exported successfully", "SUCCESS")
+                self.statusBar().showMessage(f"Results exported: {os.path.basename(file_path)}", 5000)
+                
+            except Exception as e:
+                self.results_viewer.add_log(f"✗ Failed to export results: {e}", "ERROR")
+                QMessageBox.warning(self, "Export Error", f"Failed to export results:\n{e}")
             
     def _toggle_fullscreen(self):
         """Toggle fullscreen mode"""
@@ -1527,8 +1703,9 @@ class MainWindow(QMainWindow):
                     depth_config_full = {
                         'model': depth_config['model'],
                         'device': depth_config.get('device', 'cuda' if torch.cuda.is_available() else 'cpu'),
-                        'input_size': depth_config.get('input_size', [640, 480]),
-                        'output_scale': depth_config.get('output_scale', 0.5)
+                        'output_width': depth_config.get('output_width', 518),
+                        'output_height': depth_config.get('output_height', 518),
+                        'use_metric_calibration': False
                     }
                     
                     new_estimator = DepthEstimator(depth_config_full)
@@ -1538,18 +1715,28 @@ class MainWindow(QMainWindow):
                     else:
                         self.results_viewer.add_log(f"✗ Failed to load depth model: {new_model}", "ERROR")
                 else:
-                    # Just update settings without reloading
-                    if self.video_thread.depth_estimator:
-                        self.video_thread.depth_estimator.input_size = depth_config.get('input_size', [640, 480])
-                        self.video_thread.depth_estimator.output_scale = depth_config.get('output_scale', 0.5)
-                        self.results_viewer.add_log("✓ Depth settings updated", "INFO")
+                    # Just update output resolution without reloading
+                    if self.video_thread.depth_estimator and hasattr(self.video_thread.depth_estimator.model, 'output_width'):
+                        self.video_thread.depth_estimator.model.output_width = depth_config.get('output_width', 518)
+                        self.video_thread.depth_estimator.model.output_height = depth_config.get('output_height', 518)
+                        self.results_viewer.add_log("✓ Depth output resolution updated", "INFO")
                         
             # Update detector settings if needed
             if 'detection' in new_settings and DEPTH_AVAILABLE:
                 det_config = new_settings['detection']
                 if self.video_thread.detector:
-                    # Update detector config (would need detector API support)
+                    # Update detector thresholds
+                    self.video_thread.detector.conf_threshold = det_config.get('confidence_threshold', 0.5)
+                    self.video_thread.detector.nms_threshold = det_config.get('nms_threshold', 0.4)
                     self.results_viewer.add_log("✓ Detection settings updated", "INFO")
+            
+            # Update performance settings
+            if 'performance' in new_settings:
+                perf_config = new_settings['performance']
+                enable_depth = perf_config.get('enable_depth', True)
+                enable_detection = perf_config.get('enable_detection', True)
+                self.video_thread.set_performance_settings(enable_depth, enable_detection)
+                self.results_viewer.add_log(f"✓ Performance settings: depth={'ON' if enable_depth else 'OFF'}, detection={'ON' if enable_detection else 'OFF'}", "INFO")
             
             # Update display settings
             if 'display' in new_settings:
@@ -1573,13 +1760,81 @@ class MainWindow(QMainWindow):
     def _run_diagnostics(self):
         """Run system diagnostics"""
         self.results_viewer.add_log("Running system diagnostics...", "INFO")
-        # TODO: Run diagnostics
-        QMessageBox.information(self, "Diagnostics",
-                               "System diagnostics complete.\n\n"
-                               "All systems operational.")
+        
+        diagnostics_results = []
+        all_ok = True
+        
+        # Check depth estimator
+        if DEPTH_AVAILABLE and self.video_thread.depth_estimator:
+            diagnostics_results.append("✓ Depth Estimator: Available")
+            model_type = getattr(self.video_thread.depth_estimator, 'model_type', 'Unknown')
+            diagnostics_results.append(f"  Model: {model_type}")
+        else:
+            diagnostics_results.append("✗ Depth Estimator: Not available")
+            all_ok = False
+        
+        # Check object detector
+        if DEPTH_AVAILABLE and self.video_thread.detector:
+            diagnostics_results.append("✓ Object Detector: Available")
+        else:
+            diagnostics_results.append("✗ Object Detector: Not available")
+            all_ok = False
+        
+        # Check obstacle avoider
+        if self.video_thread.obstacle_avoider:
+            diagnostics_results.append("✓ Obstacle Avoider: Available")
+        else:
+            diagnostics_results.append("✗ Obstacle Avoider: Not available")
+            all_ok = False
+        
+        # Check MAVLink connection
+        if MAVLINK_AVAILABLE and self.mavlink and self.mavlink.is_connected:
+            diagnostics_results.append("✓ MAVLink Connection: Connected")
+            telemetry = self.mavlink.get_flattened_telemetry()
+            if telemetry:
+                diagnostics_results.append(f"  Flight Mode: {telemetry.get('flight_mode', 'Unknown')}")
+                diagnostics_results.append(f"  Armed: {telemetry.get('armed', False)}")
+        else:
+            diagnostics_results.append("✗ MAVLink Connection: Not connected")
+        
+        # Check video source
+        if self.video_thread.capture and self.video_thread.capture.isOpened():
+            diagnostics_results.append("✓ Video Source: Active")
+            diagnostics_results.append(f"  Type: {self.video_thread.video_source or 'Unknown'}")
+        else:
+            diagnostics_results.append("✗ Video Source: Not active")
+        
+        # Check CUDA availability
+        try:
+            import torch
+            if torch.cuda.is_available():
+                diagnostics_results.append("✓ CUDA: Available")
+                diagnostics_results.append(f"  GPU: {torch.cuda.get_device_name(0)}")
+            else:
+                diagnostics_results.append("⚠ CUDA: Not available (using CPU)")
+        except:
+            diagnostics_results.append("⚠ PyTorch: Not available")
+        
+        # Display results
+        result_text = "\n".join(diagnostics_results)
+        self.results_viewer.add_log("Diagnostics complete", "INFO")
+        
+        for line in diagnostics_results:
+            if "✗" in line:
+                self.results_viewer.add_log(line, "ERROR")
+            elif "⚠" in line:
+                self.results_viewer.add_log(line, "WARNING")
+            else:
+                self.results_viewer.add_log(line, "SUCCESS")
+        
+        status = "All systems operational" if all_ok else "Some systems unavailable"
+        QMessageBox.information(self, "System Diagnostics", f"{status}\n\n{result_text}")
     
     def _toggle_obstacle_avoidance(self, checked: bool):
-        """Toggle obstacle avoidance active control"""
+        """Toggle obstacle avoidance active control from menu"""
+        # Sync with drone control panel checkbox
+        self.drone_control.avoidance_checkbox.setChecked(checked)
+        
         self.video_thread.set_obstacle_avoidance_enabled(checked)
         
         if checked:
@@ -1622,125 +1877,10 @@ class MainWindow(QMainWindow):
                          "</ul>"
                          "<p>© 2024 Drone Autonomy Project</p>")
     
-    # ===== Task 1: Fire Reconnaissance Handlers =====
-    
-    def _on_task1_start(self, config: dict):
-        """Handle Task 1 mission start"""
-        try:
-            self.statusBar().showMessage("Starting Task 1: Fire Reconnaissance...")
-            print(f"Task 1 Configuration: {config}")
-            
-            # Initialize Task 1
-            from drone_autonomy.tasks import FireReconnaissance
-            
-            # Get telemetry (if available)
-            telemetry = getattr(self, 'mavlink_telemetry', None)
-            
-            # Create task instance
-            self.current_task1 = FireReconnaissance(config, telemetry)
-            
-            # Start task
-            if self.current_task1.start():
-                self.statusBar().showMessage("Task 1: Fire Reconnaissance - RUNNING", 5000)
-                
-                # Start update timer
-                self.task1_update_timer = QTimer()
-                self.task1_update_timer.timeout.connect(self._update_task1)
-                self.task1_update_timer.start(100)  # Update every 100ms
-                
-                print("✓ Task 1 started successfully")
-            else:
-                self.statusBar().showMessage("Failed to start Task 1", 5000)
-                QMessageBox.critical(self, "Task Error", "Failed to start Fire Reconnaissance task")
-                
-        except Exception as e:
-            print(f"Error starting Task 1: {e}")
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(self, "Error", f"Failed to start Task 1:\n{e}")
-            self.statusBar().showMessage("Task 1 start failed", 5000)
-    
-    def _on_task1_stop(self):
-        """Handle Task 1 mission stop"""
-        try:
-            if hasattr(self, 'current_task1') and self.current_task1:
-                # Stop task
-                result = self.current_task1.stop("User requested stop")
-                
-                # Stop update timer
-                if hasattr(self, 'task1_update_timer'):
-                    self.task1_update_timer.stop()
-                
-                # Display results
-                score = result.score
-                self.statusBar().showMessage(f"Task 1 Completed - Score: {score:.1f}/100", 10000)
-                
-                QMessageBox.information(
-                    self, "Task Complete",
-                    f"Task 1: Fire Reconnaissance\n\n"
-                    f"Status: {result.status.value}\n"
-                    f"Score: {score:.1f}/100\n"
-                    f"Duration: {result.duration:.1f}s"
-                )
-                
-                self.current_task1 = None
-                print("✓ Task 1 stopped")
-                
-        except Exception as e:
-            print(f"Error stopping Task 1: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to stop Task 1:\n{e}")
-    
-    def _on_task1_config_changed(self, config: dict):
-        """Handle Task 1 configuration changes"""
-        print(f"Task 1 configuration updated: {config.keys()}")
-    
-    def _update_task1(self):
-        """Update Task 1 with current sensor data"""
-        try:
-            if not hasattr(self, 'current_task1') or not self.current_task1:
-                return
-            
-            # Get current frame and depth from video thread
-            frame = getattr(self.video_thread, 'last_frame', None)
-            depth_map = getattr(self.video_thread, 'last_depth', None)
-            detections = getattr(self.video_thread, 'last_detections', [])
-            target_detection = getattr(self.video_thread, 'last_target', None)
-            
-            if frame is not None:
-                # Update task
-                continue_task = self.current_task1.update(
-                    frame, depth_map, detections, target_detection
-                )
-                
-                # Update GUI with task status
-                mission_state = self.current_task1.get_mission_state()
-                self.task1_panel.update_mission_state(mission_state)
-                
-                # Update counters
-                self.task1_panel.update_lap_count(
-                    self.current_task1.current_lap,
-                    self.current_task1.target_laps
-                )
-                self.task1_panel.update_target_count(
-                    self.current_task1.get_target_count()
-                )
-                
-                equipment_status = self.current_task1.get_equipment_status()
-                delivered = sum(1 for d in equipment_status.values() if d)
-                total = len(equipment_status)
-                self.task1_panel.update_equipment_status(delivered, total)
-                
-                # Update scores
-                self.task1_panel.update_scores(self.current_task1.get_scores())
-                
-                # Check if task completed
-                if not continue_task:
-                    self._on_task1_stop()
-                    
-        except Exception as e:
-            print(f"Error updating Task 1: {e}")
-            import traceback
-            traceback.print_exc()
+    # ===== Task Handlers =====
+    # Note: Task-specific handlers can be added here as needed
+    # See examples/tasks/ for task implementation examples
+    # For example implementations, refer to examples/tasks/simple_hover_example.py
         
     def closeEvent(self, event):
         """Handle window close event"""

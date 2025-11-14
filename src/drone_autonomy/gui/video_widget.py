@@ -144,42 +144,48 @@ class VideoWidget(QWidget):
         self.refresh_display()
         
     def refresh_display(self):
-        """Redraw the current frame with overlays"""
+        """Redraw the current frame with overlays (optimized)"""
         if self.current_frame is None:
             return
             
-        display_frame = self.current_frame.copy()
-        
         # Apply visualization based on mode
         viz_mode = self.viz_mode_combo.currentText()
         
-        if viz_mode == "Depth Heatmap" and self.depth_map is not None:
+        # Only copy frame if we need to draw on it
+        if viz_mode == "RGB Only" and not self.show_fps:
+            # Fast path: no overlays, just display original frame
+            display_frame = self.current_frame
+        elif viz_mode == "Depth Heatmap" and self.depth_map is not None:
             display_frame = self._create_depth_heatmap(self.depth_map)
-        elif viz_mode == "Depth Overlay" and self.depth_map is not None:
-            display_frame = self._overlay_depth(display_frame, self.depth_map)
-        elif viz_mode == "Full Overlay" and self.depth_map is not None:
-            # Full overlay includes depth, obstacle avoidance, detections, telemetry
-            display_frame = self._overlay_depth(display_frame, self.depth_map)
-            # Add obstacle avoidance overlay if available
-            if self.obstacle_avoider is not None:
-                display_frame = self.obstacle_avoider.visualize(display_frame, self.depth_map)
-        elif viz_mode == "Obstacle Avoidance":
-            # Tesla-style obstacle avoidance visualization only
-            if self.obstacle_avoider is not None:
-                display_frame = self.obstacle_avoider.visualize(display_frame, self.depth_map)
+        else:
+            # Need to modify frame, make a copy
+            display_frame = self.current_frame.copy()
             
-        # Draw overlays if enabled
-        if self.overlay_enabled and viz_mode != "RGB Only":
-            if viz_mode in ["Detections Only", "Full Overlay"]:
-                display_frame = self._draw_detections(display_frame)
+            if viz_mode == "Depth Overlay" and self.depth_map is not None:
+                display_frame = self._overlay_depth(display_frame, self.depth_map)
+            elif viz_mode == "Full Overlay" and self.depth_map is not None:
+                # Full overlay includes depth, obstacle avoidance, detections, telemetry
+                display_frame = self._overlay_depth(display_frame, self.depth_map)
+                # Add obstacle avoidance overlay if available
+                if self.obstacle_avoider is not None:
+                    display_frame = self.obstacle_avoider.visualize(display_frame, self.depth_map)
+            elif viz_mode == "Obstacle Avoidance":
+                # Tesla-style obstacle avoidance visualization only
+                if self.obstacle_avoider is not None:
+                    display_frame = self.obstacle_avoider.visualize(display_frame, self.depth_map)
+                
+            # Draw overlays if enabled
+            if self.overlay_enabled and viz_mode != "RGB Only":
+                if viz_mode in ["Detections Only", "Full Overlay"]:
+                    display_frame = self._draw_detections(display_frame)
+                
+                if viz_mode == "Full Overlay":
+                    display_frame = self._draw_telemetry(display_frame)
+                    display_frame = self._draw_state_info(display_frame)
             
-            if viz_mode == "Full Overlay":
-                display_frame = self._draw_telemetry(display_frame)
-                display_frame = self._draw_state_info(display_frame)
-        
-        # Draw FPS counter if enabled (always on top)
-        if self.show_fps:
-            display_frame = self._draw_fps(display_frame)
+            # Draw FPS counter if enabled (always on top)
+            if self.show_fps:
+                display_frame = self._draw_fps(display_frame)
                 
         # Convert to QPixmap and display
         self._display_numpy_frame(display_frame)
@@ -200,10 +206,11 @@ class VideoWidget(QWidget):
         pixmap = QPixmap.fromImage(q_image)
         
         # Scale pixmap to fit label while maintaining aspect ratio
+        # Use FastTransformation for better performance (vs SmoothTransformation)
         scaled_pixmap = pixmap.scaled(
             self.video_label.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
+            Qt.TransformationMode.FastTransformation  # Faster than Smooth
         )
         
         self.video_label.setPixmap(scaled_pixmap)
@@ -219,15 +226,22 @@ class VideoWidget(QWidget):
         return cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
         
     def _overlay_depth(self, frame: np.ndarray, depth_map: np.ndarray) -> np.ndarray:
-        """Overlay depth heatmap on RGB frame"""
-        heatmap = self._create_depth_heatmap(depth_map)
+        """Overlay depth heatmap on RGB frame (optimized)"""
+        # Resize depth map to frame size FIRST (before colormap for better performance)
+        if depth_map.shape[:2] != frame.shape[:2]:
+            depth_resized = cv2.resize(depth_map, (frame.shape[1], frame.shape[0]), interpolation=cv2.INTER_NEAREST)
+        else:
+            depth_resized = depth_map
         
-        # Resize heatmap to match frame
-        if heatmap.shape[:2] != frame.shape[:2]:
-            heatmap = cv2.resize(heatmap, (frame.shape[1], frame.shape[0]))
+        # Normalize and apply colormap in-place for speed
+        normalized = cv2.normalize(depth_resized, None, 0, 255, cv2.NORM_MINMAX)
+        normalized = normalized.astype(np.uint8)
+        heatmap = cv2.applyColorMap(normalized, cv2.COLORMAP_TURBO)
+        heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
             
         # Blend with opacity
         opacity = self.depth_opacity_slider.value() / 100.0
+        # Use in-place blending to avoid extra allocation
         blended = cv2.addWeighted(frame, 1 - opacity, heatmap, opacity, 0)
         return blended
         

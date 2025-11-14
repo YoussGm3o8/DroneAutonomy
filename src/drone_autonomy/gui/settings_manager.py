@@ -32,10 +32,10 @@ class SettingsManager:
         # Default settings
         self.default_settings = {
             'depth': {
-                'model': 'dpt_hybrid',
+                'model': 'depth_anything_v2_vits_tensorrt_fp16',
                 'device': 'cuda',
-                'input_size': [640, 480],
-                'output_scale': 0.5,
+                'output_width': 518,  # Native resolution for best performance
+                'output_height': 518,
             },
             'detection': {
                 'confidence_threshold': 0.5,

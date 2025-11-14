@@ -16,13 +16,20 @@ opencv-contrib-python>=4.10.0
 torch==2.7.1
 torchvision==0.22.1
 torchaudio==2.7.1
-ultralytics>=8.0.0  # YOLO models
-timm>=0.9.0  # For Depth Anything V2 vision transformer backbone
+ultralytics>=8.0.0  # YOLO models (TensorRT-accelerated)
 
-# Depth estimation models
-# Depth Anything V2 (state-of-the-art monocular depth estimation)
-depth-anything-v2>=0.1.0  # Depth Anything V2 for fast and accurate depth estimation
-huggingface-hub>=0.20.0  # For downloading pretrained Depth Anything V2 weights
+# TensorRT for optimized depth estimation (REQUIRED)
+# Install TensorRT for Python:
+# pip install tensorrt
+# See: https://docs.nvidia.com/deeplearning/tensorrt/install-guide/
+# Note: TensorRT Python bindings require CUDA 11.8 or 12.x
+# Uses PyTorch's CUDA bindings for memory management (no need for pycuda)
+tensorrt>=8.6.0  # NVIDIA TensorRT for FP16 depth inference
+
+# Depth Anything V2 Small - TensorRT FP16 optimized (no PyTorch models needed)
+# Model converted to TensorRT engine for optimal RTX 3060 Mobile performance
+# ONNX model included: depth_anything_v2_vits.onnx
+# Convert to TensorRT with: python scripts/convert_to_tensorrt.py
 
 # MAVLink communication
 pymavlink>=2.4.37

@@ -149,6 +149,7 @@ class ObstacleAvoider:
         self.current_paths: List[PathSegment] = []
         self.selected_path: Optional[PathSegment] = None
         self.avoidance_active = False
+        self.feature_enabled = True
         
         # Target detection integration
         self.target_priority = config.get('target_priority', True)
@@ -159,6 +160,16 @@ class ObstacleAvoider:
         self.logger.info(f"  Critical distance: {self.critical_distance}m")
         self.logger.info(f"  Min clearance: {self.min_clearance}m")
     
+    def set_feature_enabled(self, enabled: bool) -> None:
+        """Enable or disable obstacle avoidance processing/visualization."""
+        self.feature_enabled = enabled
+        if not enabled:
+            # Clear runtime state so visualization reflects disabled mode
+            self.detected_obstacles = []
+            self.current_paths = []
+            self.selected_path = None
+            self.avoidance_active = False
+
     def detect_obstacles(
         self,
         depth_map: np.ndarray,
@@ -308,7 +319,8 @@ class ObstacleAvoider:
         else:
             # Emergency: select path with best clearance
             self.selected_path = max(paths, key=lambda p: p.clearance)
-            self.logger.warning("No safe path found - selecting best available")
+            if self.feature_enabled:
+                self.logger.warning("No safe path found - selecting best available")
         
         return paths
     
@@ -542,8 +554,14 @@ class ObstacleAvoider:
         # 6. Draw status HUD
         self._draw_status_hud(viz_overlay, (h, w))
         
+        # Apply disabled styling if feature is off
+        overlay_alpha = self.path_alpha
+        if not self.feature_enabled:
+            viz_overlay = self._apply_disabled_style(viz_overlay, (h, w))
+            overlay_alpha = min(self.path_alpha, 0.35)
+        
         # Blend overlay with frame
-        result = cv2.addWeighted(frame, 1.0, viz_overlay, self.path_alpha, 0)
+        result = cv2.addWeighted(frame, 1.0, viz_overlay, overlay_alpha, 0)
         
         return result
     
@@ -688,8 +706,12 @@ class ObstacleAvoider:
         y_offset = 30
         
         # Avoidance status
-        status_text = "AVOIDING" if self.avoidance_active else "CLEAR"
-        status_color = (0, 165, 255) if self.avoidance_active else (0, 255, 0)
+        if not self.feature_enabled:
+            status_text = "DISABLED"
+            status_color = (160, 160, 160)
+        else:
+            status_text = "AVOIDING" if self.avoidance_active else "CLEAR"
+            status_color = (0, 165, 255) if self.avoidance_active else (0, 255, 0)
         cv2.putText(
             overlay, f"Status: {status_text}",
             (20, y_offset),
@@ -735,3 +757,41 @@ class ObstacleAvoider:
         self.selected_path = None
         self.avoidance_active = False
         self.logger.info("Obstacle avoidance system reset")
+
+    def _apply_disabled_style(self, overlay: np.ndarray, shape: Tuple[int, int]) -> np.ndarray:
+        """Desaturate overlay and add disabled banner."""
+        # Desaturate overlay to greyscale
+        grey = cv2.cvtColor(overlay, cv2.COLOR_RGB2GRAY)
+        desaturated = cv2.cvtColor(grey, cv2.COLOR_GRAY2RGB)
+        
+        # Draw disabled banner on top-left panel
+        self._draw_disabled_banner(desaturated, shape)
+        return desaturated
+
+    def _draw_disabled_banner(self, overlay: np.ndarray, shape: Tuple[int, int]) -> None:
+        """Overlay a disabled banner message."""
+        h, w = shape
+        banner_w = min(280, w - 20)
+        cv2.rectangle(
+            overlay,
+            (10, h - 60),
+            (10 + banner_w, h - 20),
+            (30, 30, 30),
+            -1
+        )
+        cv2.rectangle(
+            overlay,
+            (10, h - 60),
+            (10 + banner_w, h - 20),
+            (90, 90, 90),
+            1
+        )
+        cv2.putText(
+            overlay,
+            "Obstacle avoidance disabled",
+            (20, h - 35),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (180, 180, 180),
+            1
+        )

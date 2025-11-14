@@ -120,6 +120,8 @@ For more details, see:
    - Task selection and configuration
    - Media gallery for photos/videos/deliverables
    - Real-time telemetry monitoring
+   - **Integrated MAVLink obstacle avoidance control** 🆕
+   - Drone arm/disarm and flight mode controls
    - Results viewer with scoring and logs
    - See [GUI Documentation](src/drone_autonomy/gui/README.md)
 
