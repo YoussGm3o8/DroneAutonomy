@@ -4,6 +4,10 @@ Complete Gazebo diagnostic and launcher
 import subprocess
 import time
 import sys
+from pathlib import Path
+
+# Repo's scripts/ dir as a Windows path; converted to a WSL path with wslpath at launch
+SCRIPTS_DIR = (Path(__file__).resolve().parent / "scripts").as_posix()
 
 def check_gazebo_status():
     """Check if Gazebo and bridge are running"""
@@ -107,7 +111,7 @@ def launch_gazebo():
     print("   Opening CMD window with bridge...")
     subprocess.Popen(
         ['cmd', '/k', 'wsl', 'bash', '-c',
-         'cd /mnt/c/Users/Youssef/Documents/Code/ComputerVision/DroneAutonomy/scripts && python3 wsl_gazebo_bridge.py --port 8554'],
+         f'cd "$(wslpath \'{SCRIPTS_DIR}\')" && python3 wsl_gazebo_bridge.py --port 8554'],
         creationflags=subprocess.CREATE_NEW_CONSOLE
     )
     print("   ✓ Bridge CMD window opened")
